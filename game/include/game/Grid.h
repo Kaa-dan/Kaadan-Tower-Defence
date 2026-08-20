@@ -33,9 +33,7 @@ public:
         return {static_cast<float>(c.x) + 0.5f, static_cast<float>(c.y) + 0.5f};
     }
 
-    static Cell cellOf(Vec2 p) {
-        return {static_cast<int>(std::floor(p.x)), static_cast<int>(std::floor(p.y))};
-    }
+    static Cell cellOf(Vec2 p) { return {math::floorToInt(p.x), math::floorToInt(p.y)}; }
 
     int index(Cell c) const { return c.y * width_ + c.x; }
 

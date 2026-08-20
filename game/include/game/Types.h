@@ -1,6 +1,7 @@
 #pragma once
 
-#include <cmath>
+#include "game/Math.h"
+
 #include <cstdint>
 
 namespace ktd {
@@ -16,7 +17,7 @@ inline Vec2 operator*(Vec2 a, float s) { return {a.x * s, a.y * s}; }
 
 inline float dot(Vec2 a, Vec2 b) { return a.x * b.x + a.y * b.y; }
 inline float lengthSq(Vec2 v) { return dot(v, v); }
-inline float length(Vec2 v) { return std::sqrt(lengthSq(v)); }
+inline float length(Vec2 v) { return math::sqrt(lengthSq(v)); }
 
 inline Vec2 normalized(Vec2 v) {
     const float len = length(v);
