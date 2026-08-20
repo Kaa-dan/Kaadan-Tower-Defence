@@ -6,6 +6,10 @@
 #include "game/World.h"
 
 #include <cstdint>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+#include <string>
 #include <vector>
 
 using namespace ktd;
@@ -115,4 +119,63 @@ TEST(hasher_writes_little_endian_regardless_of_host) {
     bytes.u8(0x01);
 
     CHECK_EQ(wide.value(), bytes.value());
+}
+
+// The FMA-contraction canary, and usually the first thing to break.
+//
+// The trace in tests/data/reference_trace.tsv is the exact output of
+// ktd_hashdump, committed. This test regenerates it in-process and diffs.
+// Because CI runs the suite under both the core (Debug) and core-release
+// presets, both legs comparing against the same committed file is what proves
+// Debug and Release agree -- an in-process test cannot compare two builds
+// itself, and pretending otherwise would be the kind of test that passes
+// without checking anything.
+//
+// The same file is the artifact the three-OS CI job diffs, so a local failure
+// here and a cross-platform failure there mean the same thing.
+TEST(determinism_debug_matches_release) {
+    std::ifstream reference(KTD_REFERENCE_TRACE);
+    if (!reference) {
+        testing::reportFailure(
+            __FILE__, __LINE__,
+            std::string("cannot open reference trace at ") + KTD_REFERENCE_TRACE);
+        return;
+    }
+
+    std::vector<std::string> expected;
+    std::string line;
+    while (std::getline(reference, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();  // a Windows checkout may have rewritten the endings
+        }
+        if (!line.empty()) {
+            expected.push_back(line);
+        }
+    }
+
+    World world(config::kGridWidth, config::kGridHeight, scenario::kSeed);
+    std::vector<std::string> actual;
+    scenario::run(world, [&](std::uint64_t tick, const World& w) {
+        std::ostringstream row;
+        row << tick << '\t' << std::hex << std::setfill('0') << std::setw(16) << w.checksum();
+        actual.push_back(row.str());
+    });
+
+    if (expected.size() != actual.size()) {
+        testing::reportFailure(__FILE__, __LINE__,
+                               "reference trace has " + std::to_string(expected.size()) +
+                                   " ticks, this run produced " + std::to_string(actual.size()));
+        return;
+    }
+
+    // Name the first divergent tick. "The traces differ" sends someone
+    // bisecting by hand; "diverged at tick 1847" points at the bug.
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        if (expected[i] != actual[i]) {
+            testing::reportFailure(__FILE__, __LINE__,
+                                   "first divergence at tick " + std::to_string(i + 1) +
+                                       ": reference " + expected[i] + ", got " + actual[i]);
+            return;
+        }
+    }
 }
