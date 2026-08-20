@@ -94,9 +94,10 @@ foreach(SOURCE ${GAME_SOURCES})
     endforeach()
 
     # --- <cmath> is allowed only in the audited math wrapper ---
-    # Off by default until game/Math.h exists (Phase 1). Types.h and World.cpp
-    # still include <cmath> directly today, so switching this on before the
-    # wrapper lands would just break the build for no benefit.
+    # Switched on in Phase 1, once game/Math.h existed and Types.h, Grid.h and
+    # World.cpp had been routed through it. The point is that pow, sin, exp and
+    # atan2 are not correctly rounded and differ between glibc, MSVC and Apple
+    # libm, so the set of files that can call them has to stay at exactly one.
     if(RULE STREQUAL "determinism" AND ENFORCE_CMATH)
         set(IS_EXEMPT FALSE)
         foreach(EXEMPT ${CMATH_EXEMPT})

@@ -43,9 +43,13 @@ target_compile_definitions(ktd_tests
 
 # Portability and determinism guards over game/.
 foreach(RULE platform determinism stdlib)
+    # ENFORCE_CMATH is on as of Phase 1: game/Math.h now exists and is the only
+    # file in game/ permitted to include <cmath>. Everything else routes through
+    # it, so the transcendental libm functions cannot reappear by accident.
     add_test(NAME purity_${RULE}
         COMMAND ${CMAKE_COMMAND}
                 -DGAME_DIR=${CMAKE_SOURCE_DIR}/game
                 -DRULE=${RULE}
+                -DENFORCE_CMATH=ON
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_purity.cmake)
 endforeach()
