@@ -1,5 +1,7 @@
 #include "game/World.h"
 
+#include "game/Hash.h"
+
 #include <algorithm>
 #include <limits>
 
@@ -19,6 +21,8 @@ World::World(int width, int height, std::uint64_t seed) : grid_(width, height), 
 
     flow_.build(grid_, goal_);
 }
+
+std::uint64_t World::checksum() const { return hashWorld(*this); }
 
 void World::step() {
     if (state_ != GameState::Playing) {

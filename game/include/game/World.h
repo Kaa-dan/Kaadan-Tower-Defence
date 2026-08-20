@@ -91,6 +91,98 @@ public:
     int enemiesLeaked() const { return leaked_; }
     int enemiesKilled() const { return killed_; }
 
+    // The world's canonical byte stream: every piece of state that a
+    // reproducible run depends on, in a fixed order, written as explicit
+    // little-endian integers.
+    //
+    // It lives here rather than in Hash.h on purpose. A serializer kept in
+    // another file is a serializer that gets a field added behind its back, and
+    // a field missing from this function is a divergence the hash cannot see.
+    // Adding a member to World means adding a line here.
+    //
+    // Sink supplies u8/u32/u64/i32/f32. Templated so the same field order
+    // serves the determinism hash now and the Phase 7 save writer later -- two
+    // separate implementations of one format would drift.
+    //
+    // Field order IS the format. Appending is safe; reordering or removing
+    // changes every hash, which is what simVersion will exist to notice.
+    template <typename Sink>
+    void serialize(Sink& out) const {
+        out.u64(tick_);
+        out.i32(gold_);
+        out.i32(lives_);
+        out.i32(wave_);
+        out.i32(leaked_);
+        out.i32(killed_);
+        out.u32(static_cast<std::uint32_t>(state_));
+        out.u32(nextId_);
+
+        // Wave director. Invisible to the player and decisive for the run.
+        out.i32(enemiesLeftToSpawn_);
+        out.u32(spawnTimer_);
+        out.u32(waveTimer_);
+        out.f32(waveHealthScale_);
+        out.f32(waveSpeedScale_);
+
+        out.u32(static_cast<std::uint32_t>(enemies_.size()));
+        for (const Enemy& enemy : enemies_) {
+            out.u32(enemy.id);
+            out.f32(enemy.position.x);
+            out.f32(enemy.position.y);
+            out.f32(enemy.health);
+            out.f32(enemy.maxHealth);
+            out.f32(enemy.speed);
+        }
+
+        out.u32(static_cast<std::uint32_t>(towers_.size()));
+        for (const Tower& tower : towers_) {
+            out.u32(tower.id);
+            out.i32(tower.cell.x);
+            out.i32(tower.cell.y);
+            out.f32(tower.range);
+            out.f32(tower.damage);
+            out.u32(tower.cooldown);
+            // aim is rendering-only, but it is derived from simulation state
+            // and costs two words to cover. A field left out of the hash is a
+            // field that can diverge silently.
+            out.f32(tower.aim.x);
+            out.f32(tower.aim.y);
+        }
+
+        out.u32(static_cast<std::uint32_t>(projectiles_.size()));
+        for (const Projectile& shot : projectiles_) {
+            out.f32(shot.position.x);
+            out.f32(shot.position.y);
+            out.f32(shot.velocity.x);
+            out.f32(shot.velocity.y);
+            out.u32(shot.targetId);
+            out.f32(shot.damage);
+            out.u32(shot.age);
+        }
+
+        // The grid is state, not level constants: towers change it as they are
+        // built, and the flow field is derived from it.
+        out.i32(grid_.width());
+        out.i32(grid_.height());
+        for (int y = 0; y < grid_.height(); ++y) {
+            for (int x = 0; x < grid_.width(); ++x) {
+                out.u8(static_cast<std::uint8_t>(grid_.at({x, y})));
+            }
+        }
+
+        // Every stream's position, including the ones nothing has drawn from
+        // yet. Two worlds that look identical but sit at different points in a
+        // stream are different runs -- they diverge on the next draw.
+        for (std::size_t i = 0; i < rng_.size(); ++i) {
+            out.u64(rng_.at(i).state());
+        }
+    }
+
+    // 64-bit fingerprint of the entire simulation state. Two runs that agree on
+    // this at every tick are the same run; a tolerance-based comparison can
+    // only ever say they are similar.
+    std::uint64_t checksum() const;
+
 private:
     void stepWaveDirector();
     void stepEnemies();

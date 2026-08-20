@@ -2,6 +2,7 @@
 # a signal the simulation has grown a platform dependency it should not have.
 set(KTD_TEST_SOURCES
     test_grid.cpp
+    test_hash.cpp
     test_math.cpp
     test_path.cpp
     test_rng.cpp
