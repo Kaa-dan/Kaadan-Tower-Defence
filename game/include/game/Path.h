@@ -34,7 +34,8 @@ private:
     std::vector<int> dist_;  // -1 = unreachable
 
     bool inBounds(Cell c) const { return c.x >= 0 && c.y >= 0 && c.x < width_ && c.y < height_; }
-    int index(Cell c) const { return c.y * width_ + c.x; }
+    // size_t for the same reason as Grid::index -- see the note there.
+    std::size_t index(Cell c) const { return static_cast<std::size_t>(c.y * width_ + c.x); }
 };
 
 // True if a walkable route exists from `from` to `to`.

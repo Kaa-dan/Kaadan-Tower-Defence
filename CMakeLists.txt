@@ -3,6 +3,7 @@ project(kaadanTD VERSION 0.1.0 LANGUAGES CXX)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(KtdWarnings)
+include(KtdDeterminism)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,6 +23,10 @@ option(KTD_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 # ktd_game, and skipping this subdirectory skips fetching and compiling SDL
 # entirely -- minutes per job down to seconds.
 option(KTD_TESTS_ONLY "Skip engine/ and app/; build only the simulation and tests" OFF)
+
+# Checked after the presets and any -D overrides have been folded into the
+# flags variables, so a fast-math flag cannot slip in from the command line.
+ktd_deny_fast_math()
 
 add_subdirectory(game)     # pure C++ simulation. No platform, no graphics.
 

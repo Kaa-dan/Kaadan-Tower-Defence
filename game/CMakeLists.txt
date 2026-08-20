@@ -10,6 +10,7 @@
 
 add_library(ktd_game STATIC
     src/Grid.cpp
+    src/Math.cpp
     src/Path.cpp
     src/World.cpp
 )
@@ -18,3 +19,7 @@ target_include_directories(ktd_game PUBLIC include)
 target_compile_features(ktd_game PUBLIC cxx_std_20)
 
 ktd_set_warnings(ktd_game)
+
+# PUBLIC: the float semantics must match in every translation unit that inlines
+# a simulation header, not just inside this library. See cmake/KtdDeterminism.cmake.
+ktd_set_determinism_flags(ktd_game)

@@ -2,6 +2,7 @@
 
 #include "game/Types.h"
 
+#include <cstddef>
 #include <vector>
 
 namespace ktd {
@@ -33,11 +34,13 @@ public:
         return {static_cast<float>(c.x) + 0.5f, static_cast<float>(c.y) + 0.5f};
     }
 
-    static Cell cellOf(Vec2 p) {
-        return {static_cast<int>(std::floor(p.x)), static_cast<int>(std::floor(p.y))};
-    }
+    static Cell cellOf(Vec2 p) { return {math::floorToInt(p.x), math::floorToInt(p.y)}; }
 
-    int index(Cell c) const { return c.y * width_ + c.x; }
+    // Returns size_t rather than int because that is what it is used for --
+    // subscripting the tile vector. Doing the conversion once here, where the
+    // in-bounds invariant makes it provably non-negative, beats a cast at every
+    // call site where the reader has to re-establish that it is safe.
+    std::size_t index(Cell c) const { return static_cast<std::size_t>(c.y * width_ + c.x); }
 
 private:
     int width_;

@@ -2,7 +2,10 @@
 # a signal the simulation has grown a platform dependency it should not have.
 set(KTD_TEST_SOURCES
     test_grid.cpp
+    test_hash.cpp
+    test_math.cpp
     test_path.cpp
+    test_rng.cpp
     test_world.cpp
 )
 
@@ -26,11 +29,27 @@ foreach(TEST_SOURCE ${KTD_TEST_SOURCES})
     endforeach()
 endforeach()
 
+# The cross-platform determinism trace. Links only ktd_game, so it builds in
+# seconds on a CI image with no display and no SDL.
+add_executable(ktd_hashdump tools/hashdump.cpp)
+target_link_libraries(ktd_hashdump PRIVATE ktd_game)
+target_include_directories(ktd_hashdump PRIVATE .)
+ktd_set_warnings(ktd_hashdump)
+
+# Where the committed reference trace lives, so determinism_debug_matches_release
+# can find it without depending on the working directory ctest was invoked from.
+target_compile_definitions(ktd_tests
+    PRIVATE KTD_REFERENCE_TRACE="${CMAKE_CURRENT_SOURCE_DIR}/data/reference_trace.tsv")
+
 # Portability and determinism guards over game/.
 foreach(RULE platform determinism stdlib)
+    # ENFORCE_CMATH is on as of Phase 1: game/Math.h now exists and is the only
+    # file in game/ permitted to include <cmath>. Everything else routes through
+    # it, so the transcendental libm functions cannot reappear by accident.
     add_test(NAME purity_${RULE}
         COMMAND ${CMAKE_COMMAND}
                 -DGAME_DIR=${CMAKE_SOURCE_DIR}/game
                 -DRULE=${RULE}
+                -DENFORCE_CMATH=ON
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_purity.cmake)
 endforeach()

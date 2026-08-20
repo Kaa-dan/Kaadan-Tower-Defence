@@ -6,10 +6,13 @@ using namespace ktd;
 
 namespace {
 
+// Tests are still written in seconds because that is how the behaviour is
+// described ("wait six seconds, the next wave starts"); the conversion to ticks
+// happens here and nowhere else.
 void advance(World& world, float seconds) {
-    const int steps = static_cast<int>(seconds / config::kFixedDt);
-    for (int i = 0; i < steps; ++i) {
-        world.step(config::kFixedDt);
+    const std::uint32_t steps = config::ticksFromSeconds(seconds);
+    for (std::uint32_t i = 0; i < steps; ++i) {
+        world.step();
     }
 }
 
@@ -126,9 +129,15 @@ TEST(the_route_stays_open_no_matter_what_the_player_builds) {
 }
 
 TEST(identical_seeds_produce_identical_runs) {
-    // The property that makes replays, save/resume and cross-platform
-    // consistency possible. If this ever fails, something in the simulation
-    // has started depending on non-deterministic state.
+    // Superseded as a determinism proof by
+    // identical_seeds_produce_identical_checksums_at_every_tick in
+    // test_hash.cpp, which compares the full state hash on every tick.
+    //
+    // This one is kept as a plain behavioural test -- same seed, same visible
+    // outcome -- but it must not be mistaken for evidence about cross-platform
+    // reproducibility. It compares two worlds inside ONE process, on ONE
+    // machine, built by ONE compiler. Every hazard this phase exists to close
+    // is invisible to it by construction.
     World a(config::kGridWidth, config::kGridHeight, 4242);
     World b(config::kGridWidth, config::kGridHeight, 4242);
 
@@ -141,17 +150,9 @@ TEST(identical_seeds_produce_identical_runs) {
     advance(a, 40.0f);
     advance(b, 40.0f);
 
-    CHECK_EQ(a.gold(), b.gold());
-    CHECK_EQ(a.lives(), b.lives());
-    CHECK_EQ(a.enemiesKilled(), b.enemiesKilled());
-    CHECK_EQ(a.waveNumber(), b.waveNumber());
-    CHECK_EQ(static_cast<int>(a.enemies().size()), static_cast<int>(b.enemies().size()));
-
-    for (std::size_t i = 0; i < a.enemies().size(); ++i) {
-        CHECK_NEAR(a.enemies()[i].position.x, b.enemies()[i].position.x, 1e-6);
-        CHECK_NEAR(a.enemies()[i].position.y, b.enemies()[i].position.y, 1e-6);
-        CHECK_NEAR(a.enemies()[i].health, b.enemies()[i].health, 1e-6);
-    }
+    // Exact, not within a tolerance. The old version allowed 1e-6 of drift,
+    // which would have let a genuine divergence through unnoticed.
+    CHECK_EQ(a.checksum(), b.checksum());
 }
 
 TEST(different_seeds_still_produce_a_valid_run) {
@@ -159,4 +160,35 @@ TEST(different_seeds_still_produce_a_valid_run) {
     advance(world, 30.0f);
     CHECK(world.waveNumber() > 0);
     CHECK(world.lives() <= config::kStartingLives);
+}
+
+// The tick is the simulation's clock, so it must advance exactly once per
+// step() and never depend on anything the caller supplies.
+TEST(world_tick_advances_once_per_step) {
+    World world;
+    CHECK_EQ(world.tick(), std::uint64_t(0));
+    for (int i = 1; i <= 100; ++i) {
+        world.step();
+        CHECK_EQ(world.tick(), std::uint64_t(i));
+    }
+}
+
+// The point of integer timers: "six seconds between waves" means exactly 360
+// ticks on the first wave and exactly 360 on the thousandth. A float timer
+// decremented by dt drifts as it accumulates, and how far it drifts depends on
+// the optimiser.
+TEST(wave_timing_is_exact_in_ticks) {
+    // Timed from a fresh world, where the field is clear and the wave timer is
+    // the only thing running. Bounded rather than open-ended: once lives run
+    // out the world stops stepping, and a while-loop waiting on a wave that
+    // will never start would hang instead of failing.
+    World world;
+    const int waveBefore = world.waveNumber();
+    std::uint64_t ticksWaited = 0;
+    const std::uint64_t limit = config::kTimeBetweenWavesTicks * 2;
+    while (world.waveNumber() == waveBefore && ticksWaited < limit) {
+        world.step();
+        ++ticksWaited;
+    }
+    CHECK_EQ(ticksWaited, std::uint64_t(config::kTimeBetweenWavesTicks));
 }

@@ -26,7 +26,10 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}
 
 FAILED=""
 for RULE in platform determinism stdlib; do
+    # -DENFORCE_CMATH=ON to match tests/CMakeLists.txt. If the hook were more
+    # lenient than CTest, the failure would just move from the edit to CI.
     if ! OUTPUT=$(cmake -DGAME_DIR="$PROJECT_DIR/game" -DRULE="$RULE" \
+                        -DENFORCE_CMATH=ON \
                         -P "$PROJECT_DIR/tests/check_purity.cmake" 2>&1); then
         FAILED="yes"
         echo "purity/$RULE FAILED after editing $FILE" >&2
