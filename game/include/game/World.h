@@ -26,8 +26,8 @@ struct Tower {
     Cell cell{};
     float range = config::kTowerRange;
     float damage = config::kTowerDamage;
-    float cooldown = 0.0f;  // seconds until it may fire again
-    Vec2 aim{1.0f, 0.0f};   // facing, for rendering only
+    std::uint32_t cooldown = 0;  // ticks until it may fire again
+    Vec2 aim{1.0f, 0.0f};        // facing, for rendering only
 };
 
 struct Projectile {
@@ -35,7 +35,7 @@ struct Projectile {
     Vec2 velocity{};
     EntityId targetId = kInvalidId;
     float damage = 0.0f;
-    float age = 0.0f;
+    std::uint32_t age = 0;  // ticks since it was fired
 };
 
 enum class GameState {
@@ -58,9 +58,15 @@ public:
     World(int width = config::kGridWidth, int height = config::kGridHeight,
           std::uint64_t seed = 12345);
 
-    // Advances the simulation by one fixed timestep. Call at a fixed rate; do
-    // not pass a variable frame delta, or runs stop being reproducible.
-    void step(float dt = config::kFixedDt);
+    // Advances the simulation by exactly one tick.
+    //
+    // There is deliberately no dt parameter. The simulation's clock is tick_,
+    // and the fixed rate is a property of the world rather than something the
+    // caller supplies -- a dt argument that nothing enforces is a standing
+    // invitation to pass a frame delta during a debugging session and quietly
+    // destroy reproducibility. config::kFixedDt still exists for the spatial
+    // math inside a tick; it is not a knob.
+    void step();
 
     PlacementResult placeTower(Cell cell);
     bool canAfford() const { return gold_ >= config::kTowerCost; }
@@ -77,17 +83,19 @@ public:
     int gold() const { return gold_; }
     int lives() const { return lives_; }
     int waveNumber() const { return wave_; }
-    float timeUntilNextWave() const { return waveTimer_; }
+    std::uint64_t tick() const { return tick_; }
+    // Ticks converted for display. The simulation itself never sees this.
+    float timeUntilNextWave() const { return static_cast<float>(waveTimer_) * config::kFixedDt; }
     bool waveInProgress() const { return enemiesLeftToSpawn_ > 0 || !enemies_.empty(); }
     GameState state() const { return state_; }
     int enemiesLeaked() const { return leaked_; }
     int enemiesKilled() const { return killed_; }
 
 private:
-    void stepWaveDirector(float dt);
-    void stepEnemies(float dt);
-    void stepTowers(float dt);
-    void stepProjectiles(float dt);
+    void stepWaveDirector();
+    void stepEnemies();
+    void stepTowers();
+    void stepProjectiles();
 
     void spawnEnemy();
     void startNextWave();
@@ -106,6 +114,11 @@ private:
     RngStreams rng_;
     EntityId nextId_ = 1;
 
+    // The simulation clock. Everything time-dependent counts ticks, not
+    // seconds, so a run is reproducible by construction rather than by
+    // convention.
+    std::uint64_t tick_ = 0;
+
     int gold_ = config::kStartingGold;
     int lives_ = config::kStartingLives;
     int wave_ = 0;
@@ -114,8 +127,8 @@ private:
     float waveHealthScale_ = 1.0f;
     float waveSpeedScale_ = 1.0f;
     int enemiesLeftToSpawn_ = 0;
-    float spawnTimer_ = 0.0f;
-    float waveTimer_ = config::kTimeBetweenWaves;
+    std::uint32_t spawnTimer_ = 0;
+    std::uint32_t waveTimer_ = config::kTimeBetweenWavesTicks;
     int leaked_ = 0;
     int killed_ = 0;
     GameState state_ = GameState::Playing;

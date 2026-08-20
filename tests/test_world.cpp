@@ -6,10 +6,13 @@ using namespace ktd;
 
 namespace {
 
+// Tests are still written in seconds because that is how the behaviour is
+// described ("wait six seconds, the next wave starts"); the conversion to ticks
+// happens here and nowhere else.
 void advance(World& world, float seconds) {
-    const int steps = static_cast<int>(seconds / config::kFixedDt);
-    for (int i = 0; i < steps; ++i) {
-        world.step(config::kFixedDt);
+    const std::uint32_t steps = config::ticksFromSeconds(seconds);
+    for (std::uint32_t i = 0; i < steps; ++i) {
+        world.step();
     }
 }
 
@@ -159,4 +162,35 @@ TEST(different_seeds_still_produce_a_valid_run) {
     advance(world, 30.0f);
     CHECK(world.waveNumber() > 0);
     CHECK(world.lives() <= config::kStartingLives);
+}
+
+// The tick is the simulation's clock, so it must advance exactly once per
+// step() and never depend on anything the caller supplies.
+TEST(world_tick_advances_once_per_step) {
+    World world;
+    CHECK_EQ(world.tick(), std::uint64_t(0));
+    for (int i = 1; i <= 100; ++i) {
+        world.step();
+        CHECK_EQ(world.tick(), std::uint64_t(i));
+    }
+}
+
+// The point of integer timers: "six seconds between waves" means exactly 360
+// ticks on the first wave and exactly 360 on the thousandth. A float timer
+// decremented by dt drifts as it accumulates, and how far it drifts depends on
+// the optimiser.
+TEST(wave_timing_is_exact_in_ticks) {
+    // Timed from a fresh world, where the field is clear and the wave timer is
+    // the only thing running. Bounded rather than open-ended: once lives run
+    // out the world stops stepping, and a while-loop waiting on a wave that
+    // will never start would hang instead of failing.
+    World world;
+    const int waveBefore = world.waveNumber();
+    std::uint64_t ticksWaited = 0;
+    const std::uint64_t limit = config::kTimeBetweenWavesTicks * 2;
+    while (world.waveNumber() == waveBefore && ticksWaited < limit) {
+        world.step();
+        ++ticksWaited;
+    }
+    CHECK_EQ(ticksWaited, std::uint64_t(config::kTimeBetweenWavesTicks));
 }

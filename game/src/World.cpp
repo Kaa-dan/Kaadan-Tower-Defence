@@ -20,15 +20,17 @@ World::World(int width, int height, std::uint64_t seed) : grid_(width, height), 
     flow_.build(grid_, goal_);
 }
 
-void World::step(float dt) {
+void World::step() {
     if (state_ != GameState::Playing) {
         return;
     }
 
-    stepWaveDirector(dt);
-    stepEnemies(dt);
-    stepTowers(dt);
-    stepProjectiles(dt);
+    ++tick_;
+
+    stepWaveDirector();
+    stepEnemies();
+    stepTowers();
+    stepProjectiles();
 
     if (lives_ <= 0) {
         lives_ = 0;
@@ -41,7 +43,7 @@ void World::step(float dt) {
 void World::startNextWave() {
     ++wave_;
     enemiesLeftToSpawn_ = config::kEnemiesInFirstWave + (wave_ - 1) * config::kEnemiesAddedPerWave;
-    spawnTimer_ = 0.0f;
+    spawnTimer_ = 0;
 
     // Computed once here rather than per spawn. Two reasons, and only one of
     // them is speed: recomputing a compounding scale for every enemy means the
@@ -52,13 +54,15 @@ void World::startNextWave() {
     waveSpeedScale_ = math::powi(config::kEnemySpeedGrowth, wave_ - 1);
 }
 
-void World::stepWaveDirector(float dt) {
+void World::stepWaveDirector() {
     if (enemiesLeftToSpawn_ > 0) {
-        spawnTimer_ -= dt;
-        if (spawnTimer_ <= 0.0f) {
+        if (spawnTimer_ > 0) {
+            --spawnTimer_;
+        }
+        if (spawnTimer_ == 0) {
             spawnEnemy();
             --enemiesLeftToSpawn_;
-            spawnTimer_ = config::kSpawnInterval;
+            spawnTimer_ = config::kSpawnIntervalTicks;
         }
         return;
     }
@@ -69,9 +73,11 @@ void World::stepWaveDirector(float dt) {
         return;
     }
 
-    waveTimer_ -= dt;
-    if (waveTimer_ <= 0.0f) {
-        waveTimer_ = config::kTimeBetweenWaves;
+    if (waveTimer_ > 0) {
+        --waveTimer_;
+    }
+    if (waveTimer_ == 0) {
+        waveTimer_ = config::kTimeBetweenWavesTicks;
         startNextWave();
     }
 }
@@ -91,7 +97,7 @@ void World::spawnEnemy() {
 
 // --- enemies ---------------------------------------------------------------
 
-void World::stepEnemies(float dt) {
+void World::stepEnemies() {
     for (Enemy& enemy : enemies_) {
         const Cell current = Grid::cellOf(enemy.position);
 
@@ -102,7 +108,7 @@ void World::stepEnemies(float dt) {
 
         const Vec2 delta = target - enemy.position;
         const float distance = length(delta);
-        const float travel = enemy.speed * dt;
+        const float travel = enemy.speed * config::kFixedDt;
 
         if (distance <= travel) {
             enemy.position = target;
@@ -151,11 +157,11 @@ const Enemy* World::findTarget(const Tower& tower) const {
     return best;
 }
 
-void World::stepTowers(float dt) {
-    const float reloadTime = 1.0f / config::kTowerShotsPerSecond;
-
+void World::stepTowers() {
     for (Tower& tower : towers_) {
-        tower.cooldown -= dt;
+        if (tower.cooldown > 0) {
+            --tower.cooldown;
+        }
 
         const Enemy* target = findTarget(tower);
         if (target == nullptr) {
@@ -165,10 +171,10 @@ void World::stepTowers(float dt) {
         const Vec2 origin = Grid::centerOf(tower.cell);
         tower.aim = normalized(target->position - origin);
 
-        if (tower.cooldown > 0.0f) {
+        if (tower.cooldown > 0) {
             continue;
         }
-        tower.cooldown = reloadTime;
+        tower.cooldown = config::kTowerReloadTicks;
 
         Projectile shot;
         shot.position = origin;
@@ -190,17 +196,17 @@ Enemy* World::findEnemy(EntityId id) {
     return nullptr;
 }
 
-void World::stepProjectiles(float dt) {
+void World::stepProjectiles() {
     std::vector<EntityId> killedThisStep;
 
     for (Projectile& shot : projectiles_) {
-        shot.age += dt;
+        ++shot.age;
 
         // Home in while the target lives; otherwise fly straight and expire.
         if (const Enemy* target = findEnemy(shot.targetId)) {
             shot.velocity = normalized(target->position - shot.position) * config::kProjectileSpeed;
         }
-        shot.position = shot.position + shot.velocity * dt;
+        shot.position = shot.position + shot.velocity * config::kFixedDt;
 
         Enemy* target = findEnemy(shot.targetId);
         if (target == nullptr) {
@@ -210,17 +216,18 @@ void World::stepProjectiles(float dt) {
         const float hitRadius = config::kProjectileHitRadius + config::kEnemyRadius;
         if (lengthSq(target->position - shot.position) <= hitRadius * hitRadius) {
             target->health -= shot.damage;
-            shot.age = config::kProjectileLifetime;  // consumed on impact
+            shot.age = config::kProjectileLifetimeTicks;  // consumed on impact
             if (target->health <= 0.0f) {
                 killedThisStep.push_back(target->id);
             }
         }
     }
 
-    projectiles_.erase(
-        std::remove_if(projectiles_.begin(), projectiles_.end(),
-                       [](const Projectile& p) { return p.age >= config::kProjectileLifetime; }),
-        projectiles_.end());
+    projectiles_.erase(std::remove_if(projectiles_.begin(), projectiles_.end(),
+                                      [](const Projectile& p) {
+                                          return p.age >= config::kProjectileLifetimeTicks;
+                                      }),
+                       projectiles_.end());
 
     for (const EntityId id : killedThisStep) {
         const auto it = std::find_if(enemies_.begin(), enemies_.end(),

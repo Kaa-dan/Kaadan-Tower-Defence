@@ -88,7 +88,7 @@ int main(int /*argc*/, char** /*argv*/) {
 
         while (accumulator >= config::kFixedDt) {
             if (!paused) {
-                world.step(config::kFixedDt);
+                world.step();
             }
             accumulator -= static_cast<double>(config::kFixedDt);
         }
