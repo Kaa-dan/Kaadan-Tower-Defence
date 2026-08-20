@@ -5,7 +5,7 @@
 # strategy: everything in here compiles as-is for Windows, Linux, mobile and
 # console, and only the engine/ backends get rewritten per platform.
 #
-# There is a guard test (tests/test_purity.cmake) that fails the build if a
+# There is a guard test (tests/check_purity.cmake) that fails the build if a
 # platform header sneaks in here, so this stays true under pressure.
 
 add_library(ktd_game STATIC
@@ -17,8 +17,4 @@ add_library(ktd_game STATIC
 target_include_directories(ktd_game PUBLIC include)
 target_compile_features(ktd_game PUBLIC cxx_std_20)
 
-if(MSVC)
-    target_compile_options(ktd_game PRIVATE /W4)
-else()
-    target_compile_options(ktd_game PRIVATE -Wall -Wextra -Wpedantic)
-endif()
+ktd_set_warnings(ktd_game)

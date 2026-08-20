@@ -31,4 +31,4 @@ private:
 // The window clear colour, kept next to the rest of the palette.
 Color backgroundColor();
 
-} // namespace ktd
+}  // namespace ktd

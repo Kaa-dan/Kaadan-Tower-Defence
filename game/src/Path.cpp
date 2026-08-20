@@ -10,7 +10,7 @@ namespace {
 // reasonably read as a bug.
 constexpr Cell kNeighbours[4] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
 
-} // namespace
+}  // namespace
 
 void FlowField::build(const Grid& grid, Cell goal) {
     width_ = grid.width();
@@ -45,13 +45,9 @@ void FlowField::build(const Grid& grid, Cell goal) {
     }
 }
 
-bool FlowField::reachable(Cell c) const {
-    return inBounds(c) && dist_[index(c)] >= 0;
-}
+bool FlowField::reachable(Cell c) const { return inBounds(c) && dist_[index(c)] >= 0; }
 
-int FlowField::distance(Cell c) const {
-    return inBounds(c) ? dist_[index(c)] : -1;
-}
+int FlowField::distance(Cell c) const { return inBounds(c) ? dist_[index(c)] : -1; }
 
 Cell FlowField::next(Cell c) const {
     if (!reachable(c)) {
@@ -96,4 +92,4 @@ bool canPlaceTower(const Grid& grid, Cell cell, Cell spawn, Cell goal) {
     return pathExists(trial, spawn, goal);
 }
 
-} // namespace ktd
+}  // namespace ktd

@@ -13,7 +13,7 @@ void advance(World& world, float seconds) {
     }
 }
 
-} // namespace
+}  // namespace
 
 TEST(world_starts_in_a_playable_state) {
     World world;

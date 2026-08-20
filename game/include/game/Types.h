@@ -57,4 +57,4 @@ private:
     std::uint64_t state_;
 };
 
-} // namespace ktd
+}  // namespace ktd

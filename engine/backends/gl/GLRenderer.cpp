@@ -72,7 +72,8 @@ public:
         GLuint vertexShader = 0;
         GLuint fragmentShader = 0;
         if (!compileShader(GL_VERTEX_SHADER, kVertexShader, vertexShader, error)) return false;
-        if (!compileShader(GL_FRAGMENT_SHADER, kFragmentShader, fragmentShader, error)) return false;
+        if (!compileShader(GL_FRAGMENT_SHADER, kFragmentShader, fragmentShader, error))
+            return false;
 
         program_ = glCreateProgram();
         glAttachShader(program_, vertexShader);
@@ -126,7 +127,8 @@ public:
 
     void setCamera(float left, float right, float bottom, float top) override {
         // Column-major orthographic projection; no depth, this is 2D.
-        for (float& value : projection_) value = 0.0f;
+        for (float& value : projection_)
+            value = 0.0f;
         projection_[0] = 2.0f / (right - left);
         projection_[5] = 2.0f / (top - bottom);
         projection_[10] = -1.0f;
@@ -159,16 +161,13 @@ public:
         glUniformMatrix4fv(projectionUniform_, 1, GL_FALSE, projection_);
         glBindVertexArray(vao_);
         glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-        glBufferData(GL_ARRAY_BUFFER,
-                     static_cast<GLsizeiptr>(vertices_.size() * sizeof(Vertex)),
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices_.size() * sizeof(Vertex)),
                      vertices_.data(), GL_STREAM_DRAW);
         glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices_.size()));
     }
 
 private:
-    void pushVertex(Vec2 p, Color c) {
-        vertices_.push_back({p.x, p.y, c.r, c.g, c.b, c.a});
-    }
+    void pushVertex(Vec2 p, Color c) { vertices_.push_back({p.x, p.y, c.r, c.g, c.b, c.a}); }
 
     void pushQuad(Vec2 a, Vec2 b, Vec2 c, Vec2 d, Color color) {
         pushVertex(a, color);
@@ -193,7 +192,7 @@ private:
 
 const Platform* GLRenderer::sActivePlatform = nullptr;
 
-} // namespace
+}  // namespace
 
 std::unique_ptr<Renderer> createRenderer(const Platform& platform, std::string& error) {
     auto renderer = std::make_unique<GLRenderer>();
@@ -203,4 +202,4 @@ std::unique_ptr<Renderer> createRenderer(const Platform& platform, std::string& 
     return renderer;
 }
 
-} // namespace ktd
+}  // namespace ktd

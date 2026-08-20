@@ -13,16 +13,16 @@ namespace ktd {
 struct InputState {
     bool quitRequested = false;
 
-    Vec2 pointer{};             // in window pixels, origin top-left
-    bool pointerDown = false;   // held this frame
-    bool pointerPressed = false; // went down this frame (edge)
+    Vec2 pointer{};               // in window pixels, origin top-left
+    bool pointerDown = false;     // held this frame
+    bool pointerPressed = false;  // went down this frame (edge)
 
     bool restartPressed = false;
     bool pausePressed = false;
 
     int windowWidth = 0;
     int windowHeight = 0;
-    float pixelScale = 1.0f;    // 2.0 on a retina display
+    float pixelScale = 1.0f;  // 2.0 on a retina display
 };
 
 // The boundary between the game and the operating system: a window, an input
@@ -56,9 +56,7 @@ public:
 
 // Creates the platform backend compiled into this build. Returns nullptr on
 // failure, with the reason written to `error`.
-std::unique_ptr<Platform> createPlatform(const std::string& title,
-                                         int width,
-                                         int height,
+std::unique_ptr<Platform> createPlatform(const std::string& title, int width, int height,
                                          std::string& error);
 
-} // namespace ktd
+}  // namespace ktd

@@ -46,4 +46,4 @@ public:
 // to the window.
 std::unique_ptr<Renderer> createRenderer(const Platform& platform, std::string& error);
 
-} // namespace ktd
+}  // namespace ktd

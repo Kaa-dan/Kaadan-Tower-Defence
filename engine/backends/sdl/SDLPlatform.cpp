@@ -26,9 +26,9 @@ public:
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-        window_ = SDL_CreateWindow(title.c_str(), width, height,
-                                   SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE |
-                                       SDL_WINDOW_HIGH_PIXEL_DENSITY);
+        window_ = SDL_CreateWindow(
+            title.c_str(), width, height,
+            SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
         if (window_ == nullptr) {
             error = std::string("SDL_CreateWindow failed: ") + SDL_GetError();
             return false;
@@ -105,7 +105,8 @@ public:
 
         out.windowWidth = logicalW;
         out.windowHeight = logicalH;
-        out.pixelScale = logicalW > 0 ? static_cast<float>(pixelW) / static_cast<float>(logicalW) : 1.0f;
+        out.pixelScale =
+            logicalW > 0 ? static_cast<float>(pixelW) / static_cast<float>(logicalW) : 1.0f;
 
         return !out.quitRequested;
     }
@@ -131,11 +132,9 @@ private:
     double counterFrequency_ = 1.0;
 };
 
-} // namespace
+}  // namespace
 
-std::unique_ptr<Platform> createPlatform(const std::string& title,
-                                         int width,
-                                         int height,
+std::unique_ptr<Platform> createPlatform(const std::string& title, int width, int height,
                                          std::string& error) {
     auto platform = std::make_unique<SDLPlatform>();
     if (!platform->init(title, width, height, error)) {
@@ -144,4 +143,4 @@ std::unique_ptr<Platform> createPlatform(const std::string& title,
     return platform;
 }
 
-} // namespace ktd
+}  // namespace ktd

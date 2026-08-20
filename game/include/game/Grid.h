@@ -7,9 +7,9 @@
 namespace ktd {
 
 enum class Tile : std::uint8_t {
-    Open,    // walkable and buildable
-    Wall,    // permanent level geometry, never walkable
-    Tower,   // occupied by a tower: blocks walking, not buildable
+    Open,   // walkable and buildable
+    Wall,   // permanent level geometry, never walkable
+    Tower,  // occupied by a tower: blocks walking, not buildable
 };
 
 // The level's static playfield. Owns tile state only; it knows nothing about
@@ -21,16 +21,12 @@ public:
     int width() const { return width_; }
     int height() const { return height_; }
 
-    bool inBounds(Cell c) const {
-        return c.x >= 0 && c.y >= 0 && c.x < width_ && c.y < height_;
-    }
+    bool inBounds(Cell c) const { return c.x >= 0 && c.y >= 0 && c.x < width_ && c.y < height_; }
 
     Tile at(Cell c) const { return tiles_[index(c)]; }
     void set(Cell c, Tile t) { tiles_[index(c)] = t; }
 
-    bool walkable(Cell c) const {
-        return inBounds(c) && tiles_[index(c)] == Tile::Open;
-    }
+    bool walkable(Cell c) const { return inBounds(c) && tiles_[index(c)] == Tile::Open; }
 
     // Centre of a tile in world units, where one tile is 1.0 x 1.0.
     static Vec2 centerOf(Cell c) {
@@ -49,4 +45,4 @@ private:
     std::vector<Tile> tiles_;
 };
 
-} // namespace ktd
+}  // namespace ktd

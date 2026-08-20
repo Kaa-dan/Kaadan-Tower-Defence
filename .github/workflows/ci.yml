@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # The fast loop. Simulation and tests only -- KTD_TESTS_ONLY skips engine/ and
+  # app/, so SDL is never fetched or compiled. Seconds, not minutes.
+  core:
+    name: core (${{ matrix.os }}, ${{ matrix.preset }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+        preset: [core, core-release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  # The full build, including SDL and the GL backend. Release only: this exists
+  # to catch link and platform breakage, not to gate every push on a slow build.
+  app:
+    name: app (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+                                  libxi-dev libxfixes-dev libxrender-dev libxss-dev \
+                                  libxtst-dev libwayland-dev libxkbcommon-dev \
+                                  libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
+      - name: Cache SDL source and build
+        uses: actions/cache@v4
+        with:
+          # Keyed on the pinned SDL commit, so the cache invalidates exactly when
+          # the pin moves and never otherwise.
+          path: build/release/_deps
+          key: sdl-${{ runner.os }}-147a8ee32dbf9ac02f3794964490687b6bbda1bc
+      - name: Configure
+        run: cmake --preset release
+      - name: Build
+        run: cmake --build --preset release
+
+  sanitizers:
+    name: ASan + UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+      - name: Configure
+        run: cmake --preset asan
+      - name: Build
+        run: cmake --build --preset asan
+      - name: Test
+        run: ctest --preset asan
+
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned, not the runner's default: clang-format's output changes between
+      # major versions, so an unpinned binary means a runner image bump can turn
+      # CI red with no code change. Keep this in lockstep with CLAUDE.md.
+      - name: Install clang-format
+        run: |
+          pipx install clang-format==20.1.7
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Check formatting
+        run: |
+          find game engine app tests \( -name '*.h' -o -name '*.cpp' \) -print0 \
+            | xargs -0 -r clang-format --dry-run --Werror
