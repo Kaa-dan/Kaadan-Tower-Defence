@@ -1,7 +1,6 @@
 #include "game/World.h"
 
 #include <algorithm>
-#include <cmath>
 #include <limits>
 
 namespace ktd {
@@ -43,6 +42,14 @@ void World::startNextWave() {
     ++wave_;
     enemiesLeftToSpawn_ = config::kEnemiesInFirstWave + (wave_ - 1) * config::kEnemiesAddedPerWave;
     spawnTimer_ = 0.0f;
+
+    // Computed once here rather than per spawn. Two reasons, and only one of
+    // them is speed: recomputing a compounding scale for every enemy means the
+    // wave's difficulty is derived in the hot path from a value that must never
+    // vary within the wave. Deriving it once at the wave boundary makes that
+    // structural instead of merely true.
+    waveHealthScale_ = math::powi(config::kEnemyHealthGrowth, wave_ - 1);
+    waveSpeedScale_ = math::powi(config::kEnemySpeedGrowth, wave_ - 1);
 }
 
 void World::stepWaveDirector(float dt) {
@@ -70,17 +77,14 @@ void World::stepWaveDirector(float dt) {
 }
 
 void World::spawnEnemy() {
-    const float waveScale = std::pow(config::kEnemyHealthGrowth, static_cast<float>(wave_ - 1));
-    const float speedScale = std::pow(config::kEnemySpeedGrowth, static_cast<float>(wave_ - 1));
-
     Enemy enemy;
     enemy.id = nextId_++;
     enemy.position = Grid::centerOf(spawn_);
     // Spread arrivals across the tile so a wave does not render as one blob.
     enemy.position.y += rng_.range(-0.25f, 0.25f);
-    enemy.maxHealth = config::kEnemyBaseHealth * waveScale;
+    enemy.maxHealth = config::kEnemyBaseHealth * waveHealthScale_;
     enemy.health = enemy.maxHealth;
-    enemy.speed = config::kEnemyBaseSpeed * speedScale;
+    enemy.speed = config::kEnemyBaseSpeed * waveSpeedScale_;
 
     enemies_.push_back(enemy);
 }

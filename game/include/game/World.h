@@ -108,6 +108,10 @@ private:
     int gold_ = config::kStartingGold;
     int lives_ = config::kStartingLives;
     int wave_ = 0;
+    // Compounding difficulty for the wave in progress, recomputed only when a
+    // wave starts. See startNextWave().
+    float waveHealthScale_ = 1.0f;
+    float waveSpeedScale_ = 1.0f;
     int enemiesLeftToSpawn_ = 0;
     float spawnTimer_ = 0.0f;
     float waveTimer_ = config::kTimeBetweenWaves;
