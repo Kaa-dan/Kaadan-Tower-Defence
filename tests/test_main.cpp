@@ -5,12 +5,13 @@
 namespace {
 
 void printUsage() {
-    std::printf("usage: ktd_tests [--list] [--filter <name>]\n"
-                "  --list           print every registered test name, one per line\n"
-                "  --filter <name>  run only the test with this exact name\n");
+    std::printf(
+        "usage: ktd_tests [--list] [--filter <name>]\n"
+        "  --list           print every registered test name, one per line\n"
+        "  --filter <name>  run only the test with this exact name\n");
 }
 
-} // namespace
+}  // namespace
 
 int main(int argc, char** argv) {
     const char* filter = nullptr;
@@ -56,7 +57,6 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    std::printf("\n%d/%d tests passed, %d checks failed\n",
-                passed, ran, testing::failureCount());
+    std::printf("\n%d/%d tests passed, %d checks failed\n", passed, ran, testing::failureCount());
     return testing::failureCount() == 0 ? 0 : 1;
 }

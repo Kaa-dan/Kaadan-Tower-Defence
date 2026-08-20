@@ -6,8 +6,7 @@
 
 namespace ktd {
 
-World::World(int width, int height, std::uint64_t seed)
-    : grid_(width, height), rng_(seed) {
+World::World(int width, int height, std::uint64_t seed) : grid_(width, height), rng_(seed) {
     spawn_ = {0, height / 2};
     goal_ = {width - 1, height / 2};
 
@@ -262,4 +261,4 @@ PlacementResult World::placeTower(Cell cell) {
     return PlacementResult::Placed;
 }
 
-} // namespace ktd
+}  // namespace ktd

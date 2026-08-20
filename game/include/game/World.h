@@ -25,8 +25,8 @@ struct Tower {
     Cell cell{};
     float range = config::kTowerRange;
     float damage = config::kTowerDamage;
-    float cooldown = 0.0f;   // seconds until it may fire again
-    Vec2 aim{1.0f, 0.0f};    // facing, for rendering only
+    float cooldown = 0.0f;  // seconds until it may fire again
+    Vec2 aim{1.0f, 0.0f};   // facing, for rendering only
 };
 
 struct Projectile {
@@ -44,8 +44,8 @@ enum class GameState {
 
 enum class PlacementResult {
     Placed,
-    BlockedTile,      // wall, existing tower, spawn or goal
-    WouldSealPath,    // legal tile, but it would wall the route off entirely
+    BlockedTile,    // wall, existing tower, spawn or goal
+    WouldSealPath,  // legal tile, but it would wall the route off entirely
     NotEnoughGold,
 };
 
@@ -54,8 +54,7 @@ enum class PlacementResult {
 // runs identically inside the renderer-less test suite and on every platform.
 class World {
 public:
-    World(int width = config::kGridWidth,
-          int height = config::kGridHeight,
+    World(int width = config::kGridWidth, int height = config::kGridHeight,
           std::uint64_t seed = 12345);
 
     // Advances the simulation by one fixed timestep. Call at a fixed rate; do
@@ -117,4 +116,4 @@ private:
     GameState state_ = GameState::Playing;
 };
 
-} // namespace ktd
+}  // namespace ktd

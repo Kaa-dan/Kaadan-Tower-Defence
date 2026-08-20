@@ -45,7 +45,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
-                                  libxi-dev libxss-dev libwayland-dev libxkbcommon-dev \
+                                  libxi-dev libxfixes-dev libxrender-dev libxss-dev \
+                                  libxtst-dev libwayland-dev libxkbcommon-dev \
                                   libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
       - name: Cache SDL source and build
         uses: actions/cache@v4
@@ -78,7 +79,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Pinned, not the runner's default: clang-format's output changes between
+      # major versions, so an unpinned binary means a runner image bump can turn
+      # CI red with no code change. Keep this in lockstep with CLAUDE.md.
+      - name: Install clang-format
+        run: |
+          pipx install clang-format==20.1.7
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Check formatting
         run: |
-          find game engine app tests -name '*.h' -o -name '*.cpp' \
-            | xargs clang-format --dry-run --Werror
+          find game engine app tests \( -name '*.h' -o -name '*.cpp' \) -print0 \
+            | xargs -0 -r clang-format --dry-run --Werror

@@ -22,7 +22,7 @@ constexpr Color kRouteHint{0.35f, 0.45f, 0.65f, 0.55f};
 
 constexpr float kMargin = 0.6f;  // tiles of empty space around the board
 
-} // namespace
+}  // namespace
 
 void GameView::updateCamera(const World& world, int pixelWidth, int pixelHeight) {
     const float boardW = static_cast<float>(world.grid().width()) + kMargin * 2.0f;
@@ -54,9 +54,7 @@ void GameView::updateCamera(const World& world, int pixelWidth, int pixelHeight)
     top_ = centerY + viewH * 0.5f;
 }
 
-void GameView::apply(Renderer& renderer) const {
-    renderer.setCamera(left_, right_, bottom_, top_);
-}
+void GameView::apply(Renderer& renderer) const { renderer.setCamera(left_, right_, bottom_, top_); }
 
 Cell GameView::pointerToCell(Vec2 pointer, const InputState& input) const {
     if (input.windowWidth <= 0 || input.windowHeight <= 0) {
@@ -106,9 +104,10 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered, bool p
 
     // --- placement preview -------------------------------------------------
     if (grid.inBounds(hovered)) {
-        const bool placeable = world.canAfford() &&
-                               canPlaceTower(grid, hovered, world.spawn(), world.goal());
-        renderer.drawQuad(Grid::centerOf(hovered), {0.94f, 0.94f}, placeable ? kHoverOk : kHoverBad);
+        const bool placeable =
+            world.canAfford() && canPlaceTower(grid, hovered, world.spawn(), world.goal());
+        renderer.drawQuad(Grid::centerOf(hovered), {0.94f, 0.94f},
+                          placeable ? kHoverOk : kHoverBad);
         if (placeable) {
             renderer.drawRectOutline(Grid::centerOf(hovered),
                                      {config::kTowerRange * 2.0f, config::kTowerRange * 2.0f},
@@ -158,4 +157,4 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered, bool p
 
 Color backgroundColor() { return kBackground; }
 
-} // namespace ktd
+}  // namespace ktd

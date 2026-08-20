@@ -12,4 +12,4 @@ void Renderer::drawRectOutline(Vec2 center, Vec2 size, float thickness, Color co
     drawQuad({center.x + halfW, center.y}, {thickness, size.y}, color);  // right
 }
 
-} // namespace ktd
+}  // namespace ktd

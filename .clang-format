@@ -6,10 +6,11 @@ IndentWidth: 4
 AccessModifierOffset: -4
 PointerAlignment: Left
 DerivePointerAlignment: false
-AllowShortFunctionsOnASingleLine: Inline
-AllowShortIfStatementsOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
 AllowShortLoopsOnASingleLine: false
 BreakBeforeBraces: Attach
-SpaceAfterCStyleCast: true
+PackConstructorInitializers: CurrentLine
+SpaceAfterCStyleCast: false
 IncludeBlocks: Preserve
 SortIncludes: CaseSensitive

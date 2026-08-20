@@ -48,36 +48,36 @@ inline constexpr GLenum GL_ONE_MINUS_SRC_ALPHA = 0x0303;
 #define KTD_GLAPI
 #endif
 
-#define KTD_GL_FUNCS(X)                                                                        \
-    X(void, ClearColor, (GLfloat, GLfloat, GLfloat, GLfloat))                                  \
-    X(void, Clear, (GLbitfield))                                                               \
-    X(void, Viewport, (GLint, GLint, GLsizei, GLsizei))                                        \
-    X(void, Enable, (GLenum))                                                                  \
-    X(void, BlendFunc, (GLenum, GLenum))                                                       \
-    X(void, GenVertexArrays, (GLsizei, GLuint*))                                               \
-    X(void, BindVertexArray, (GLuint))                                                         \
-    X(void, DeleteVertexArrays, (GLsizei, const GLuint*))                                      \
-    X(void, GenBuffers, (GLsizei, GLuint*))                                                    \
-    X(void, BindBuffer, (GLenum, GLuint))                                                      \
-    X(void, DeleteBuffers, (GLsizei, const GLuint*))                                           \
-    X(void, BufferData, (GLenum, GLsizeiptr, const void*, GLenum))                             \
-    X(void, VertexAttribPointer, (GLuint, GLint, GLenum, GLboolean, GLsizei, const void*))     \
-    X(void, EnableVertexAttribArray, (GLuint))                                                 \
-    X(GLuint, CreateShader, (GLenum))                                                          \
-    X(void, ShaderSource, (GLuint, GLsizei, const GLchar* const*, const GLint*))               \
-    X(void, CompileShader, (GLuint))                                                           \
-    X(void, GetShaderiv, (GLuint, GLenum, GLint*))                                             \
-    X(void, GetShaderInfoLog, (GLuint, GLsizei, GLsizei*, GLchar*))                            \
-    X(void, DeleteShader, (GLuint))                                                            \
-    X(GLuint, CreateProgram, ())                                                               \
-    X(void, AttachShader, (GLuint, GLuint))                                                    \
-    X(void, LinkProgram, (GLuint))                                                             \
-    X(void, GetProgramiv, (GLuint, GLenum, GLint*))                                            \
-    X(void, GetProgramInfoLog, (GLuint, GLsizei, GLsizei*, GLchar*))                           \
-    X(void, DeleteProgram, (GLuint))                                                           \
-    X(void, UseProgram, (GLuint))                                                              \
-    X(GLint, GetUniformLocation, (GLuint, const GLchar*))                                      \
-    X(void, UniformMatrix4fv, (GLint, GLsizei, GLboolean, const GLfloat*))                     \
+#define KTD_GL_FUNCS(X)                                                                    \
+    X(void, ClearColor, (GLfloat, GLfloat, GLfloat, GLfloat))                              \
+    X(void, Clear, (GLbitfield))                                                           \
+    X(void, Viewport, (GLint, GLint, GLsizei, GLsizei))                                    \
+    X(void, Enable, (GLenum))                                                              \
+    X(void, BlendFunc, (GLenum, GLenum))                                                   \
+    X(void, GenVertexArrays, (GLsizei, GLuint*))                                           \
+    X(void, BindVertexArray, (GLuint))                                                     \
+    X(void, DeleteVertexArrays, (GLsizei, const GLuint*))                                  \
+    X(void, GenBuffers, (GLsizei, GLuint*))                                                \
+    X(void, BindBuffer, (GLenum, GLuint))                                                  \
+    X(void, DeleteBuffers, (GLsizei, const GLuint*))                                       \
+    X(void, BufferData, (GLenum, GLsizeiptr, const void*, GLenum))                         \
+    X(void, VertexAttribPointer, (GLuint, GLint, GLenum, GLboolean, GLsizei, const void*)) \
+    X(void, EnableVertexAttribArray, (GLuint))                                             \
+    X(GLuint, CreateShader, (GLenum))                                                      \
+    X(void, ShaderSource, (GLuint, GLsizei, const GLchar* const*, const GLint*))           \
+    X(void, CompileShader, (GLuint))                                                       \
+    X(void, GetShaderiv, (GLuint, GLenum, GLint*))                                         \
+    X(void, GetShaderInfoLog, (GLuint, GLsizei, GLsizei*, GLchar*))                        \
+    X(void, DeleteShader, (GLuint))                                                        \
+    X(GLuint, CreateProgram, ())                                                           \
+    X(void, AttachShader, (GLuint, GLuint))                                                \
+    X(void, LinkProgram, (GLuint))                                                         \
+    X(void, GetProgramiv, (GLuint, GLenum, GLint*))                                        \
+    X(void, GetProgramInfoLog, (GLuint, GLsizei, GLsizei*, GLchar*))                       \
+    X(void, DeleteProgram, (GLuint))                                                       \
+    X(void, UseProgram, (GLuint))                                                          \
+    X(GLint, GetUniformLocation, (GLuint, const GLchar*))                                  \
+    X(void, UniformMatrix4fv, (GLint, GLsizei, GLboolean, const GLfloat*))                 \
     X(void, DrawArrays, (GLenum, GLint, GLsizei))
 
 #define KTD_DECLARE_GL(ret, name, args) extern ret(KTD_GLAPI* gl##name) args;
@@ -90,4 +90,4 @@ using GetProcAddressFn = void* (*)(const char*);
 // function in `error` if the driver does not provide it.
 bool loadFunctions(GetProcAddressFn getProc, char* error, std::size_t errorSize);
 
-} // namespace ktd::gl
+}  // namespace ktd::gl

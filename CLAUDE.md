@@ -28,6 +28,15 @@ cmake --preset dev  && cmake --build --preset dev                           # fu
 Use the `core` preset by default — it skips SDL entirely (0.7s to configure vs 94s).
 `asan` preset for sanitizers. All 24 tests must stay green.
 
+Formatting is CI-enforced. The version is pinned deliberately — clang-format's output shifts
+between major releases, so it must move in lockstep with `.github/workflows/ci.yml`:
+
+```sh
+find game engine app tests \( -name '*.h' -o -name '*.cpp' \) -print0 \
+  | xargs -0 -r pipx run clang-format==20.1.7 -i     # -i rewrites in place;
+                                                    # --dry-run --Werror is the CI check
+```
+
 ## Working agreement
 
 - **One roadmap phase per session.** `/clear` at phase boundaries.

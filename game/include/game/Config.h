@@ -19,7 +19,7 @@ inline constexpr int kTowerCost = 40;
 inline constexpr int kGoldPerKill = 8;
 
 // --- Towers -------------------------------------------------------------
-inline constexpr float kTowerRange = 3.2f;       // tiles
+inline constexpr float kTowerRange = 3.2f;  // tiles
 inline constexpr float kTowerDamage = 10.0f;
 inline constexpr float kTowerShotsPerSecond = 1.6f;
 
@@ -38,7 +38,7 @@ inline constexpr float kEnemyRadius = 0.22f;
 // --- Waves --------------------------------------------------------------
 inline constexpr int kEnemiesInFirstWave = 6;
 inline constexpr int kEnemiesAddedPerWave = 2;
-inline constexpr float kSpawnInterval = 0.75f;      // seconds between spawns
+inline constexpr float kSpawnInterval = 0.75f;  // seconds between spawns
 inline constexpr float kTimeBetweenWaves = 6.0f;
 
-} // namespace ktd::config
+}  // namespace ktd::config

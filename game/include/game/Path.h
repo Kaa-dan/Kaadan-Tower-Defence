@@ -33,9 +33,7 @@ private:
     Cell goal_{};
     std::vector<int> dist_;  // -1 = unreachable
 
-    bool inBounds(Cell c) const {
-        return c.x >= 0 && c.y >= 0 && c.x < width_ && c.y < height_;
-    }
+    bool inBounds(Cell c) const { return c.x >= 0 && c.y >= 0 && c.x < width_ && c.y < height_; }
     int index(Cell c) const { return c.y * width_ + c.x; }
 };
 
@@ -47,4 +45,4 @@ bool pathExists(const Grid& grid, Cell from, Cell to);
 // classic maze-TD rule, and it is why placement needs the pathfinder.
 bool canPlaceTower(const Grid& grid, Cell cell, Cell spawn, Cell goal);
 
-} // namespace ktd
+}  // namespace ktd

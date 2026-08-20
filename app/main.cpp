@@ -12,9 +12,8 @@ using namespace ktd;
 namespace {
 
 std::string buildTitle(const World& world, bool paused) {
-    std::string title = "kaadanTD  |  Wave " + std::to_string(world.waveNumber()) +
-                        "   Gold " + std::to_string(world.gold()) +
-                        "   Lives " + std::to_string(world.lives()) +
+    std::string title = "kaadanTD  |  Wave " + std::to_string(world.waveNumber()) + "   Gold " +
+                        std::to_string(world.gold()) + "   Lives " + std::to_string(world.lives()) +
                         "   Killed " + std::to_string(world.enemiesKilled());
     if (world.state() == GameState::Defeat) {
         title += "   [DEFEAT - press R to restart]";
@@ -26,7 +25,7 @@ std::string buildTitle(const World& world, bool paused) {
     return title;
 }
 
-} // namespace
+}  // namespace
 
 int main(int /*argc*/, char** /*argv*/) {
     std::string error;
