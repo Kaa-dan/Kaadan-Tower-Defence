@@ -60,6 +60,78 @@ jobs:
       - name: Build
         run: cmake --build --preset release
 
+  # The job that actually proves determinism.
+  #
+  # Everything else in this phase is scaffolding for these two: each platform
+  # produces a per-tick hash trace of the same scripted run, and the compare job
+  # diffs them. Without this, the float-with-discipline decision in ADR 0002 is
+  # a hope rather than a property -- nothing else here can observe two operating
+  # systems at once.
+  #
+  # Both build types run, because FMA contraction usually breaks Debug against
+  # Release before it breaks one OS against another.
+  determinism:
+    name: determinism trace (${{ matrix.os }}, ${{ matrix.preset }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+        preset: [core, core-release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build hash dump
+        run: cmake --build --preset ${{ matrix.preset }} --target ktd_hashdump
+      - name: Produce trace
+        shell: bash
+        run: |
+          # Ninja is single-config on every platform here, MSVC included, so
+          # there is no per-config subdirectory. The .exe suffix is spelled out
+          # rather than left to Git Bash's implicit resolution.
+          BIN="build/${{ matrix.preset }}/tests/ktd_hashdump"
+          if [ -f "$BIN.exe" ]; then BIN="$BIN.exe"; fi
+          "$BIN" > trace.tsv
+          # A truncated trace would still diff clean against another truncated
+          # trace, so assert the length rather than trusting it.
+          test "$(wc -l < trace.tsv)" -eq 3000
+      - name: Upload trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: trace-${{ matrix.os }}-${{ matrix.preset }}
+          path: trace.tsv
+          if-no-files-found: error
+
+  determinism-compare:
+    name: determinism compare
+    runs-on: ubuntu-latest
+    needs: determinism
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download traces
+        uses: actions/download-artifact@v4
+        with:
+          pattern: trace-*
+          path: traces
+      - name: Compare across platforms and build types
+        run: |
+          python3 tests/tools/compare_traces.py \
+            ubuntu-debug=traces/trace-ubuntu-latest-core/trace.tsv \
+            ubuntu-release=traces/trace-ubuntu-latest-core-release/trace.tsv \
+            macos-debug=traces/trace-macos-14-core/trace.tsv \
+            macos-release=traces/trace-macos-14-core-release/trace.tsv \
+            windows-debug=traces/trace-windows-latest-core/trace.tsv \
+            windows-release=traces/trace-windows-latest-core-release/trace.tsv
+      - name: Confirm the traces match the committed reference
+        run: |
+          # The committed reference is what determinism_golden pins, so if CI
+          # agrees with itself but not with the repo, the golden constant is
+          # stale and every replay recorded against it is suspect.
+          diff -u tests/data/reference_trace.tsv traces/trace-ubuntu-latest-core/trace.tsv
+
   sanitizers:
     name: ASan + UBSan
     runs-on: ubuntu-latest
