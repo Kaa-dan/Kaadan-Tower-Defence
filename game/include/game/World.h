@@ -3,6 +3,7 @@
 #include "game/Config.h"
 #include "game/Grid.h"
 #include "game/Path.h"
+#include "game/Rng.h"
 #include "game/Types.h"
 
 #include <vector>
@@ -102,7 +103,7 @@ private:
     std::vector<Tower> towers_;
     std::vector<Projectile> projectiles_;
 
-    Rng rng_;
+    RngStreams rng_;
     EntityId nextId_ = 1;
 
     int gold_ = config::kStartingGold;

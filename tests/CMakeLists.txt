@@ -4,6 +4,7 @@ set(KTD_TEST_SOURCES
     test_grid.cpp
     test_math.cpp
     test_path.cpp
+    test_rng.cpp
     test_world.cpp
 )
 

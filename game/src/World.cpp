@@ -81,7 +81,7 @@ void World::spawnEnemy() {
     enemy.id = nextId_++;
     enemy.position = Grid::centerOf(spawn_);
     // Spread arrivals across the tile so a wave does not render as one blob.
-    enemy.position.y += rng_.range(-0.25f, 0.25f);
+    enemy.position.y += rng_[RngStream::SpawnJitter].range(-0.25f, 0.25f);
     enemy.maxHealth = config::kEnemyBaseHealth * waveHealthScale_;
     enemy.health = enemy.maxHealth;
     enemy.speed = config::kEnemyBaseSpeed * waveSpeedScale_;
