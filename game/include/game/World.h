@@ -117,6 +117,16 @@ public:
         out.u32(static_cast<std::uint32_t>(state_));
         out.u32(nextId_);
 
+        // Derived from the grid dimensions today, so hashing the dimensions
+        // already covers them. Written explicitly anyway: the moment a level
+        // loader sets a spawn or goal that is not a function of the size, this
+        // stops being true, and goal_ drives the flow field that every enemy
+        // steers by.
+        out.i32(spawn_.x);
+        out.i32(spawn_.y);
+        out.i32(goal_.x);
+        out.i32(goal_.y);
+
         // Wave director. Invisible to the player and decisive for the run.
         out.i32(enemiesLeftToSpawn_);
         out.u32(spawnTimer_);
@@ -169,6 +179,16 @@ public:
                 out.u8(static_cast<std::uint8_t>(grid_.at({x, y})));
             }
         }
+
+        // flow_ is deliberately absent. It is a pure function of (grid_, goal_),
+        // both of which are written above, and it is rebuilt on the only path
+        // that mutates the grid. So it cannot diverge independently -- this is
+        // the one exception to the rule stated at the top of this function.
+        //
+        // It does matter for Phase 7: a save writer using this stream will not
+        // persist the distance cache, so the loader must call
+        // flow_.build(grid_, goal_) after restoring the grid, or every enemy
+        // stands still.
 
         // Every stream's position, including the ones nothing has drawn from
         // yet. Two worlds that look identical but sit at different points in a

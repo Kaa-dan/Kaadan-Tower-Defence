@@ -153,7 +153,19 @@ const Enemy* World::findTarget(const Tower& tower) const {
             continue;
         }
         const int toGoal = flow_.distance(Grid::cellOf(enemy.position));
-        if (toGoal >= 0 && toGoal < bestDistance) {
+        if (toGoal < 0) {
+            continue;
+        }
+        // Ties are common, not rare: toGoal is a coarse per-tile BFS integer,
+        // so every enemy sharing a tile ties. Breaking the tie on entity id
+        // rather than on position in enemies_ is what ADR 0004 requires, and it
+        // is free to do now. Today the two happen to agree, because enemies_ is
+        // only ever appended to and erased in order -- but Phase 2's
+        // swap-and-pop makes array position a function of destruction history,
+        // and every replay recorded before that change would silently desync
+        // with nothing in the code explaining why.
+        if (best == nullptr || toGoal < bestDistance ||
+            (toGoal == bestDistance && enemy.id < best->id)) {
             bestDistance = toGoal;
             best = &enemy;
         }
