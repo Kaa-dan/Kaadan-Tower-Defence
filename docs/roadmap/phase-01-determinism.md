@@ -16,21 +16,26 @@ without reading that first.
 
 Each names a test. The phase is done when they pass and not before.
 
-- [ ] `determinism_golden` — 3,000 steps from a fixed seed produce a `World::checksum()` equal
+- [x] `determinism_golden` — 3,000 steps from a fixed seed produce a `World::checksum()` equal
       to a constant committed in the test. Fails loudly if any gameplay change alters it.
-- [ ] `determinism_cross_platform` — the CI job runs `ktd_hashdump` on all three OSes, uploads
-      each `tick→hash` trace, and a compare job diffs them. **A failure must name the first
-      divergent tick**, not merely report inequality. This is the criterion that actually
-      proves the phase; the rest is scaffolding for it.
-- [ ] `determinism_debug_matches_release` — the hash trace is identical between Debug and
-      RelWithDebInfo on one OS. This is the FMA-contraction canary and usually breaks first.
-- [ ] `math_powi_matches_pow_for_small_exponents` — the replacement is correct, not merely
+      Constant is `0x6684E7DA901C0081`.
+- [~] `determinism_cross_platform` — **WRITTEN, NEVER RUN.** The `determinism` matrix (3 OSes
+      x Debug/Release) and `determinism-compare` jobs exist and the compare script names the
+      first divergent tick and the odd platform out, verified locally against a deliberately
+      corrupted trace. But CI has never executed on this repo, so the criterion that actually
+      proves the phase is still unmet. This is the blocking open item.
+- [x] `determinism_debug_matches_release` — verified on macOS: the `core` and `core-release`
+      traces are byte-identical for all 3,000 ticks. Implemented as a diff against the
+      committed reference, which both CI legs check.
+- [x] `math_powi_matches_pow_for_small_exponents` — the replacement is correct, not merely
       deterministic.
-- [ ] `rng_streams_are_independent` — adding a consumer to one stream does not alter another's
+- [x] `rng_streams_are_independent` — adding a consumer to one stream does not alter another's
       output.
-- [ ] `rng_rangeint_is_unbiased` — a chi-squared or bucket-count check over a large sample.
-- [ ] `purity_determinism` passes with `ENFORCE_CMATH=ON`.
-- [ ] All 24 existing tests still pass.
+- [x] `rng_rangeint_is_unbiased` — plus `rng_rangeint_rejects_instead_of_folding_the_top_range`,
+      because the chi-squared check alone could not have detected the bias it was meant to
+      catch. See the journal.
+- [x] `purity_determinism` passes with `ENFORCE_CMATH=ON`.
+- [x] All existing tests still pass — 44 now, under `core`, `core-release` and `asan`.
 
 ## Work
 

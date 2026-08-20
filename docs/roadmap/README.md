@@ -10,8 +10,8 @@ Start a phase with `/phase <n>`. Check state with `/status`.
 | Phase | Scope | Est. | State |
 |---|---|---|---|
 | [0](phase-00-infrastructure.md) | Infrastructure: presets, CI, `-Werror`, purity guards | ½ d | ✅ done (`340f0a7`) |
-| [1](phase-01-determinism.md) | Determinism hardening | 2 d | ⬜ **next** |
-| [2](phase-02-entity-storage.md) | Entity storage: handles, pools, spatial index | 3 d | ⬜ |
+| [1](phase-01-determinism.md) | Determinism hardening | 2 d | ✅ done, CI unverified (`phase-01/determinism`) |
+| [2](phase-02-entity-storage.md) | Entity storage: handles, pools, spatial index | 3 d | ⬜ **next** |
 | [3](phase-03-content.md) | Data-driven content + hot reload | 3 d | ⬜ |
 | [4](phase-04-systems.md) | Systems split, damage pipeline, event queue | 2 d | ⬜ |
 | [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 4-5 d | ⬜ ⚠️ |
@@ -39,9 +39,14 @@ Two dependencies are load-bearing:
 
 ## Open items (owner decisions, not phase work)
 
-- **Open the PR for `build/phase-0-infrastructure`** and watch the CI run. It has **never
-  executed** — green locally on macOS only. The Linux and Windows legs are unproven, and the
-  `app` job's X11/Wayland package list was written from knowledge, not from a green run.
+- **Push `phase-01/determinism` and watch the CI run.** This is now the blocking open item for
+  the whole project, not a tidy-up. CI has still **never executed** — everything through Phase
+  1 is green on macOS locally only. Phase 1's entire point is the `determinism` +
+  `determinism-compare` jobs proving the simulation is bit-identical on three operating
+  systems, and until that runs, ADR 0002's float-with-discipline decision remains a hope
+  rather than a property. Also still unproven: the Linux and Windows legs generally, and the
+  `app` job's X11/Wayland package list, which was written from knowledge rather than a green
+  run.
 - **`LICENSE`** — deliberately not chosen. This is a commercial title; the call is the
   owner's.
 - **Re-run the renderer/platform design review** before Phase 5.
@@ -52,12 +57,13 @@ Bugs in the current code, not missing features. Each names the phase that fixes 
 
 | # | Issue | Where | Fixed in |
 |---|---|---|---|
-| 1 | `std::pow` diverges across platforms — the determinism test passes only because it has never run on two OSes | `game/src/World.cpp:74-75` | 1 |
-| 2 | `findTarget` returns a raw `const Enemy*` into a vector — dangles on the first AoE tower | `game/src/World.cpp:135-148` | 2 |
+| ~~1~~ | ~~`std::pow` diverges across platforms~~ — fixed in Phase 1: `math::powi`, computed once per wave | ~~`game/src/World.cpp:74-75`~~ | ✅ 1 |
+| 2 | `findTarget` returns a raw `const Enemy*` into a vector — dangles on the first AoE tower. Its tie-break is also array-order-dependent, which becomes load-bearing the moment storage changes | `game/src/World.cpp` | 2 |
 | 3 | O(P×E) double linear scan per frame; the second `findEnemy` call is pure waste | `game/src/World.cpp:197,202` | 2 |
 | 4 | `canPlaceTower` copies the whole `Grid` and flood-fills — called **every frame** from `draw()` | `game/src/Path.cpp:94`, `app/GameView.cpp:109` | 2 |
 | 5 | No render interpolation — visible judder above 60 Hz, which is most Steam users | `app/main.cpp:94` | 6 |
 | 6 | Goal detection is a radius test; fast enemies can tunnel past and never register a leak | `game/src/World.cpp:113` | 2 |
-| 7 | `Rng::rangeInt` has modulo bias; seeds are not decorrelated | `game/include/game/Types.h:52` | 1 |
+| ~~7~~ | ~~`Rng::rangeInt` has modulo bias; seeds are not decorrelated~~ — fixed in Phase 1: Lemire's method + splitmix64 mixing | ~~`game/include/game/Types.h:52`~~ | ✅ 1 |
+| 8 | `waveInProgress()` stays true forever once `state_` is `Defeat`, because `step()` returns early and the field never clears. Harmless in the game; it hangs any loop that waits on it | `game/include/game/World.h`, `game/src/World.cpp:25-27` | unassigned |
 
 If you find a new one, add it here rather than fixing it inside an unrelated phase.
