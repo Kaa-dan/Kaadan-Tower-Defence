@@ -12,8 +12,10 @@ set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-    GIT_TAG release-3.4.14
-    GIT_SHALLOW TRUE
+    # A commit SHA, not a tag: tags are mutable, and a shipped build has to be
+    # reproducible years from now. This is release-3.4.14.
+    GIT_TAG 147a8ee32dbf9ac02f3794964490687b6bbda1bc
+    GIT_SHALLOW FALSE
     EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(SDL3)
@@ -31,17 +33,9 @@ target_include_directories(ktd_engine PUBLIC .)
 # but never the reverse.
 target_link_libraries(ktd_engine PUBLIC ktd_game PRIVATE SDL3::SDL3-static)
 
-# SDL owns the GL context, so the platform header is the only thing that needs
-# to be public here.
-target_link_libraries(ktd_engine PUBLIC SDL3::Headers)
-
 if(APPLE)
     find_library(OPENGL_FRAMEWORK OpenGL REQUIRED)
     target_link_libraries(ktd_engine PRIVATE ${OPENGL_FRAMEWORK})
 endif()
 
-if(MSVC)
-    target_compile_options(ktd_engine PRIVATE /W4)
-else()
-    target_compile_options(ktd_engine PRIVATE -Wall -Wextra)
-endif()
+ktd_set_warnings(ktd_engine)

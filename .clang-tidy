@@ -1,0 +1,10 @@
+# Deliberately narrow. A noisy tidy config gets ignored; a quiet one gets read.
+Checks: >
+  bugprone-*,
+  performance-*,
+  readability-braces-around-statements,
+  readability-implicit-bool-conversion,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions
+WarningsAsErrors: ''
+HeaderFilterRegex: '(game|engine|app)/.*\.h$'
