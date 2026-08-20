@@ -63,9 +63,20 @@ public:
         return static_cast<std::uint32_t>((state_ * 0x2545F4914F6CDD1Dull) >> 32);
     }
 
-    // [0, 1). The divisor is 2^32 exactly, so this is a single exact division
-    // of an integer-valued float -- no rounding surprises across platforms.
-    float unit() { return static_cast<float>(next()) / 4294967296.0f; }
+    // [0, 1), and the half-open bound is real rather than aspirational.
+    //
+    // The obvious `float(next()) / 2^32` does NOT satisfy it. uint32 to float
+    // is not exact above 2^24 -- floats up there are spaced 256 apart -- so the
+    // 128 largest results round up to exactly 2^32 and the division returns
+    // 1.0f. About three draws in a hundred million: often enough to reach a
+    // player, never often enough to show up in a test that was not looking.
+    // range(lo, hi) could return hi, and the natural int(unit() * n) idiom
+    // would index one past the end of a table.
+    //
+    // Taking the top 24 bits instead is exact -- 24 bits is all a float holds
+    // anyway -- and the multiply by 2^-24 is exact, so the result is provably
+    // below 1.
+    float unit() { return static_cast<float>(next() >> 8) * 0x1p-24f; }
 
     float range(float lo, float hi) { return lo + unit() * (hi - lo); }
 
@@ -74,12 +85,28 @@ public:
     // faces come up measurably more often than others. Cheap to avoid, and
     // impossible to notice later without looking for it.
     int rangeInt(int lo, int hiInclusive) {
+        // Every path consumes exactly one draw's worth of stream position,
+        // degenerate ranges included. A draw count that varies with a branch is
+        // the classic replay desync: a tick where the candidate list happened to
+        // hold one element would leave the stream somewhere different from a
+        // tick where it held two, and the divergence would surface later, in an
+        // unrelated draw, with nothing pointing back here.
+        const std::uint32_t raw = next();
         if (hiInclusive <= lo) {
             return lo;
         }
-        const std::uint32_t span =
-            static_cast<std::uint32_t>(static_cast<std::int64_t>(hiInclusive) - lo + 1);
-        return static_cast<int>(static_cast<std::int64_t>(lo) + bounded(span));
+
+        const std::int64_t span64 = static_cast<std::int64_t>(hiInclusive) - lo + 1;
+        // The full int range is 2^32, which truncates to 0 in a uint32 and would
+        // make bounded() return 0 every time -- rangeInt(INT_MIN, INT_MAX) would
+        // always answer INT_MIN. In that one case the raw draw already is the
+        // uniform answer.
+        if (span64 > 0xFFFFFFFFLL) {
+            return static_cast<int>(static_cast<std::int64_t>(lo) + raw);
+        }
+
+        const std::uint32_t span = static_cast<std::uint32_t>(span64);
+        return static_cast<int>(static_cast<std::int64_t>(lo) + bounded(raw, span));
     }
 
     // Exposed so the world hash covers the generator. A run that reaches the
@@ -96,9 +123,9 @@ private:
         return mixed != 0 ? mixed : 0x9E3779B97F4A7C15ull;
     }
 
-    // Uniform over [0, span) for span > 0.
-    std::uint32_t bounded(std::uint32_t span) {
-        std::uint64_t product = static_cast<std::uint64_t>(next()) * span;
+    // Uniform over [0, span) for span > 0, consuming the caller's first draw.
+    std::uint32_t bounded(std::uint32_t first, std::uint32_t span) {
+        std::uint64_t product = static_cast<std::uint64_t>(first) * span;
         std::uint32_t low = static_cast<std::uint32_t>(product);
         if (low < span) {
             // 2^32 % span, computed without a 64-bit divide.
@@ -119,9 +146,12 @@ class RngStreams {
 public:
     explicit RngStreams(std::uint64_t seed) {
         for (std::size_t i = 0; i < kRngStreamCount; ++i) {
-            // Mixing the stream index into the seed rather than offsetting it
-            // keeps neighbouring streams from starting near each other.
-            streams_[i] = Rng(splitmix64(seed + (static_cast<std::uint64_t>(i) << 32)));
+            // Mixed multiplicatively into an already-mixed seed. Adding the
+            // shifted index instead would make world seed S stream i identical
+            // to world seed S + 2^32 stream i-1 -- not a determinism defect,
+            // but a needless overlap between two players' games.
+            streams_[i] = Rng(splitmix64(splitmix64(seed) ^
+                                         (static_cast<std::uint64_t>(i) * 0x9E3779B97F4A7C15ull)));
         }
     }
 

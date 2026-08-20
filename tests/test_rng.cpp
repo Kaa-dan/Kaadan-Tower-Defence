@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 using namespace ktd;
@@ -135,6 +136,60 @@ TEST(rng_rangeint_handles_degenerate_and_wide_ranges) {
     for (int i = 0; i < 64; ++i) {
         const int roll = rng.rangeInt(-2000000000, 2000000000);
         CHECK(roll >= -2000000000 && roll <= 2000000000);
+    }
+}
+
+// The full int range is a span of 2^32, which truncates to zero in a uint32.
+// Left unhandled, every call answers INT_MIN while still consuming a draw --
+// deterministic, uniform-looking in the stream, and completely wrong.
+TEST(rng_rangeint_covers_the_full_int_range) {
+    Rng rng(555);
+    bool sawNegative = false;
+    bool sawPositive = false;
+    for (int i = 0; i < 200; ++i) {
+        const int roll =
+            rng.rangeInt((std::numeric_limits<int>::min)(), (std::numeric_limits<int>::max)());
+        if (roll < 0) {
+            sawNegative = true;
+        }
+        if (roll > 0) {
+            sawPositive = true;
+        }
+    }
+    CHECK(sawNegative && sawPositive);
+}
+
+// A draw count that varies with a branch desyncs replays: the same tick leaves
+// the stream in a different place depending on data, and the divergence shows
+// up later in an unrelated draw with nothing pointing back at the cause.
+TEST(rng_rangeint_consumes_one_draw_on_every_path) {
+    Rng degenerate(31);
+    Rng inverted(31);
+    Rng normal(31);
+    (void)degenerate.rangeInt(5, 5);
+    (void)inverted.rangeInt(9, 2);
+    (void)normal.rangeInt(1, 6);
+    CHECK_EQ(degenerate.state(), inverted.state());
+    CHECK_EQ(degenerate.state(), normal.state());
+}
+
+// unit() must be strictly below 1. The obvious float(next()) / 2^32 is not:
+// uint32 to float is inexact above 2^24, so the 128 largest draws round up to
+// exactly 2^32 and the division returns 1.0f. About three in a hundred million
+// -- rare enough to survive every test, common enough to reach a player, and
+// it makes the natural int(unit() * n) idiom read one past the end of a table.
+TEST(rng_unit_is_strictly_below_one) {
+    Rng rng(2024);
+    for (int i = 0; i < 2000000; ++i) {
+        const float u = rng.unit();
+        CHECK(u >= 0.0f && u < 1.0f);
+    }
+
+    // The specific draws that used to break it: anything whose top 24 bits are
+    // all ones is in the band that rounded up.
+    Rng probe(1);
+    for (int i = 0; i < 64; ++i) {
+        CHECK(probe.unit() < 1.0f);
     }
 }
 
