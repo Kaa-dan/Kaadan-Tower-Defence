@@ -27,6 +27,14 @@ std::string buildTitle(const World& world, bool paused) {
 
 }  // namespace
 
+// Window size in logical points times the display scale, as whole pixels.
+// Spelled out because int -> float is a lossy conversion the compiler is now
+// right to complain about: above 2^24 an int no longer round-trips through a
+// float. No window is that wide, but the cast documents that we checked.
+int scaledPixels(int points, float scale) {
+    return static_cast<int>(static_cast<float>(points) * scale);
+}
+
 int main(int /*argc*/, char** /*argv*/) {
     std::string error;
 
@@ -53,6 +61,13 @@ int main(int /*argc*/, char** /*argv*/) {
     // fast the machine draws. That is what makes runs reproducible across
     // platforms and what will let saves, replays and (later) console
     // certification behave predictably.
+    // The accumulator is double and the simulation's dt is float, and they must
+    // not meet implicitly. kFixedDt is converted once, here, into the type the
+    // accumulator is compared against -- an implicit promotion inside the loop
+    // condition would silently change which side of the boundary a frame falls
+    // on. -Wdouble-promotion is on precisely to keep this from creeping back.
+    constexpr double kStepSeconds = static_cast<double>(config::kFixedDt);
+
     double previousTime = platform->now();
     double accumulator = 0.0;
     std::string lastTitle;
@@ -78,23 +93,23 @@ int main(int /*argc*/, char** /*argv*/) {
             paused = false;
         }
 
-        view.updateCamera(world, static_cast<int>(input.windowWidth * input.pixelScale),
-                          static_cast<int>(input.windowHeight * input.pixelScale));
+        view.updateCamera(world, scaledPixels(input.windowWidth, input.pixelScale),
+                          scaledPixels(input.windowHeight, input.pixelScale));
         const Cell hovered = view.pointerToCell(input.pointer, input);
 
         if (input.pointerPressed && !paused && world.state() == GameState::Playing) {
             world.placeTower(hovered);
         }
 
-        while (accumulator >= config::kFixedDt) {
+        while (accumulator >= kStepSeconds) {
             if (!paused) {
                 world.step();
             }
-            accumulator -= static_cast<double>(config::kFixedDt);
+            accumulator -= kStepSeconds;
         }
 
-        const int pixelWidth = static_cast<int>(input.windowWidth * input.pixelScale);
-        const int pixelHeight = static_cast<int>(input.windowHeight * input.pixelScale);
+        const int pixelWidth = scaledPixels(input.windowWidth, input.pixelScale);
+        const int pixelHeight = scaledPixels(input.windowHeight, input.pixelScale);
 
         renderer->beginFrame(pixelWidth, pixelHeight, backgroundColor());
         view.apply(*renderer);
