@@ -47,6 +47,10 @@ Two dependencies are load-bearing:
   rather than a property. Also still unproven: the Linux and Windows legs generally, and the
   `app` job's X11/Wayland package list, which was written from knowledge rather than a green
   run.
+- **Re-tune the two shifted timers.** The tick conversion moved the spawn interval from 46 to
+  45 ticks (waves arrive ~2.2% faster) and projectile lifetime from 181 to 180. Both are
+  correct engineering and neither is a design decision anyone made. Balance is the owner's
+  call.
 - **`LICENSE`** — deliberately not chosen. This is a commercial title; the call is the
   owner's.
 - **Re-run the renderer/platform design review** before Phase 5.

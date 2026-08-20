@@ -45,11 +45,26 @@ temporarily reverting `bounded()` to the modulo form and confirming that test �
 test — failed. Did the same for the reference-trace guard by corrupting tick 1847 and checking
 it named tick 1847.
 
-*Not every design number survives a tick conversion.* `kTowerShotsPerSecond = 1.6` is 37.5
-ticks. It became `kTowerReloadTicks = 38`, a real rate of 1.579/second, so towers are ~1.3%
-slower. Every test still passed, which means nothing depended on the old value — but this is a
-design number changed by an engineering constraint and it needs the owner's eye, not silent
-inheritance. Flagged in the commit and in the PR-facing notes.
+*I named the wrong balance change, and an audit caught it.* The tick-conversion commit claimed
+towers got ~1.3% slower because 1.6 shots/second is 37.5 ticks rounded to 38. Wrong: the old
+float timer already took 38 ticks to expire, so the reload never moved. The timers that
+actually shifted were the spawn interval (46 → 45 ticks) and projectile lifetime (181 → 180),
+because their float versions summed to just under the nominal duration and needed one extra
+tick — while `kTimeBetweenWaves` rounded the other way and landed exactly on 360. Two timers
+written identically drifting in opposite directions is the accumulated-error hazard the whole
+conversion existed to kill, so the new numbers are right. The lesson is narrower and more
+uncomfortable: I asserted a specific quantitative claim in a commit message without measuring
+it, and it was wrong in both directions at once. Corrected in `Config.h`, ADR 0007 and here.
+
+**The audit found five more, in code this phase wrote.** Running `determinism-auditor` over
+the diff was worth the whole exercise. The worst: the `<cmath>` ban did nothing. `Math.h` is a
+header included by `Types.h`, so `<cmath>` is transitively in scope everywhere in `game/`, and
+the guard only banned the include directive — the auditor dropped a `std::pow` into
+`World.cpp` and every guard reported clean. The guard now bans the functions by name. It also
+found three real bugs in the RNG I had just rewritten: `unit()` could return exactly `1.0f`
+(128 of 2^32 draws round up past the float's precision), `rangeInt(INT_MIN, INT_MAX)` always
+returned `INT_MIN`, and `rangeInt` consumed a draw on some paths and not others. Fixing my own
+new code twice in one phase is a useful calibration on how much to trust a careful first pass.
 
 **Bug found and left alone:** `waveInProgress()` stays true forever once the game reaches
 `Defeat`, because `step()` returns early and the field never clears. Harmless in the game,

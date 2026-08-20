@@ -38,9 +38,16 @@ the conversion once, at compile time — so the design intent stays readable.
 ## Consequences
 
 - A design value that is not a whole number of ticks cannot survive the conversion.
-  `kTowerShotsPerSecond = 1.6` is 37.5 ticks; it became `kTowerReloadTicks = 38`, an actual
-  rate of 1.579/second. Any future tunable expressed as a rate has the same constraint, and it
-  is better to author the tick count directly than to discover the rounding later.
+  `kTowerShotsPerSecond = 1.6` is 37.5 ticks, so it is now authored as
+  `kTowerReloadTicks = 38`. Any future tunable expressed as a rate has the same constraint,
+  and it is better to author the tick count directly than to discover the rounding later.
+- **The conversion shifted two timers, and they were not the obvious ones.** The spawn
+  interval went from 46 ticks to 45 and projectile lifetime from 181 to 180; the wave gap and
+  the tower reload did not move at all. The old float timers summed to just under their
+  nominal duration and so needed one extra tick — except `kTimeBetweenWaves`, which rounded
+  the other way and landed exactly on 360. Two timers written identically drifting in opposite
+  directions is exactly the hazard this ADR exists to remove, which is the argument that the
+  new values are the right ones. They remain a balance change needing the owner's eye.
 - Anything that wants wall-clock seconds converts at the boundary, for display only
   (`World::timeUntilNextWave`).
 - Slow-motion, fast-forward and frame-stepping are all "call `step()` a different number of
