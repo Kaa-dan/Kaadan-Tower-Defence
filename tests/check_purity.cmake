@@ -17,11 +17,33 @@ endif()
 file(GLOB_RECURSE GAME_SOURCES "${GAME_DIR}/*.h" "${GAME_DIR}/*.cpp")
 list(LENGTH GAME_SOURCES SOURCE_COUNT)
 
-# Files exempt from a rule, matched as a substring of the path. Math.cpp is the
-# one place allowed to include <cmath>: it wraps the handful of functions that
-# are IEEE-exact and provides deterministic replacements for the ones that are
-# not, so every other file can be held to "no direct libm".
+# Files exempt from the libm rules, matched as a substring of the path. Math.h
+# and Math.cpp are the one place allowed to touch <cmath>: they wrap the handful
+# of functions that are IEEE-exact and provide deterministic replacements for
+# the ones that are not, so every other file can be held to "no direct libm".
 set(CMATH_EXEMPT "game/src/Math.cpp" "game/include/game/Math.h")
+
+# The transcendental functions themselves, not just the header that declares
+# them.
+#
+# Banning only `#include <cmath>` does not work, and an audit proved it: Math.h
+# is a header, Types.h includes it, so <cmath> is transitively in scope in every
+# translation unit in game/. Nobody has to write the include directive to call
+# std::pow -- which means the exact divergence this project removed in Phase 1
+# could walk straight back in with every guard still green. The only remaining
+# net would be the cross-platform CI trace, and that only fires if the scripted
+# 3,000-tick scenario happens to exercise the offending line.
+#
+# These are the functions that are NOT correctly rounded and differ between
+# glibc, MSVC and Apple libm. sqrt and floor are absent on purpose: they are
+# IEEE-exact and safe.
+set(LIBM_TOKENS
+    "std::pow" "std::sin" "std::cos" "std::tan" "std::exp" "std::log"
+    "std::atan" "std::asin" "std::acos" "std::fmod" "std::hypot" "std::cbrt"
+    "std::sinh" "std::cosh" "std::tanh" "std::erf" "std::tgamma" "std::lgamma"
+    "powf(" "sinf(" "cosf(" "tanf(" "expf(" "logf(" "atan2f(" "fmodf("
+    "hypotf(" "cbrtf("
+)
 
 if(RULE STREQUAL "platform")
     # Forbidden #include substrings, matched case-insensitively.
@@ -113,6 +135,14 @@ foreach(SOURCE ${GAME_SOURCES})
                 if(NOT FOUND EQUAL -1)
                     list(APPEND VIOLATIONS
                         "${SOURCE}: ${INCLUDE} (only Math.h/Math.cpp may include <cmath>)")
+                endif()
+            endforeach()
+            # The include ban alone is not enough -- see LIBM_TOKENS above.
+            foreach(BAD ${LIBM_TOKENS})
+                string(FIND "${CONTENT}" "${BAD}" FOUND)
+                if(NOT FOUND EQUAL -1)
+                    list(APPEND VIOLATIONS
+                        "${SOURCE}: calls '${BAD}' (route it through game/Math.h)")
                 endif()
             endforeach()
         endif()
