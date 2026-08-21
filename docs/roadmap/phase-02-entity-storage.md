@@ -10,19 +10,23 @@ generation-tagged handles, not an ECS —
 
 ## Acceptance criteria
 
-- [ ] `pool_stale_handle_returns_null` — a handle to a destroyed entity fails safely.
-- [ ] `pool_survives_generation_wrap` — deterministically, even when the counter wraps.
-- [ ] `spatial_index_matches_bruteforce` — the grid query returns exactly what an O(N) scan
+- [x] `pool_stale_handle_returns_null` — a handle to a destroyed entity fails safely.
+- [x] `pool_survives_generation_wrap` — deterministically, even when the counter wraps.
+- [x] `spatial_index_matches_bruteforce` — the grid query returns exactly what an O(N) scan
       would, over randomized layouts.
-- [ ] `targeting_ties_break_on_handle_not_position` — the property that makes the refactor
-      hash-invariant.
-- [ ] `placement_preview_allocates_nothing` — the per-frame hover query stops copying the grid.
-- [ ] `stress_5000_enemies` — reports timing; **does not assert wall-clock** (CI timing is too
-      noisy to gate on).
-- [ ] `determinism_golden` **unchanged** through steps 3-6 below. This is the real criterion:
+- [x] `targeting_ties_break_on_handle_not_position` — the property that makes the refactor
+      hash-invariant. Ties break on the stable entity **id**, not on the handle: a handle's
+      slot index comes off the free list and is therefore also a function of destruction
+      history. See [ADR 0009](../decisions/0009-handles-address-ids-identify.md).
+- [x] `placement_preview_allocates_nothing` — the per-frame hover query stops copying the grid.
+- [x] `stress_5000_enemies` — reports timing; **does not assert wall-clock** (CI timing is too
+      noisy to gate on). Drives the real `Pool`, `SpatialIndex` and targeting rule but **not
+      `World::step()`** — nothing today can put 5,000 enemies into a World. See the ledger.
+- [x] `determinism_golden` **unchanged** through steps 3-6 below — held, along with all 3,000
+      ticks of the reference trace. This is the real criterion:
       an unchanged hash proves the refactor was behavior-preserving in a way passing tests
       cannot.
-- [ ] ASan/UBSan preset clean.
+- [x] ASan/UBSan preset clean.
 
 ## Migration order (this is the whole trick)
 
