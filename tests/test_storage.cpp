@@ -17,12 +17,32 @@ using namespace ktd;
 
 namespace {
 
-// Program-wide allocation counter. Replacing the global operator new is heavy
-// -- it affects every test in the binary -- but it is the only way to assert
-// "this code path does not allocate" as a property rather than as a claim in a
-// comment. The counters are plain globals rather than atomics because the test
-// binary is single-threaded, and <atomic> is what the determinism guard bans
-// from game/ anyway.
+// Program-wide allocation counter.
+//
+// Replacing the global operator new is heavy -- it affects every test in the
+// binary -- but it is the only way to assert "this code path does not allocate"
+// as a property rather than as a claim in a comment. The counters are plain
+// globals rather than atomics because the test binary is single-threaded, and
+// <atomic> is what the determinism guard bans from game/ anyway.
+//
+// THE RULE THAT MATTERS: every allocating form whose memory can reach one of the
+// replaced deletes must itself be replaced. Deletes are not matched to news by
+// which overload allocated; ordinary `operator delete(void*)` frees memory from
+// the nothrow new as well. Replacing the throwing forms and forgetting the
+// nothrow ones therefore routes an ASan-allocated block into std::free, and
+// AddressSanitizer correctly reports alloc-dealloc-mismatch.
+//
+// That is not hypothetical -- it is what broke CI. libstdc++'s std::stable_sort
+// takes its merge buffer from std::get_temporary_buffer, which calls
+// `operator new(n, std::nothrow)`, and World::serialize sorts entities into
+// canonical id order on every checksum(). Every hash test failed on Linux while
+// macOS passed, because libc++ does not use nothrow new on that path. A
+// standard-library implementation detail, visible only on one platform.
+//
+// The over-aligned forms (std::align_val_t) are deliberately NOT replaced. They
+// pair only with the aligned deletes, which are also left alone, so both halves
+// stay with the default implementation and cannot mismatch -- and replacing them
+// would need std::aligned_alloc, which MSVC does not provide.
 std::size_t g_allocations = 0;
 
 }  // namespace
@@ -35,10 +55,21 @@ void* operator new(std::size_t size) {
     throw std::bad_alloc();
 }
 void* operator new[](std::size_t size) { return ::operator new(size); }
+
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+    ++g_allocations;
+    return std::malloc(size == 0 ? 1 : size);
+}
+void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept {
+    return ::operator new(size, tag);
+}
+
 void operator delete(void* p) noexcept { std::free(p); }
 void operator delete[](void* p) noexcept { std::free(p); }
 void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+void operator delete(void* p, const std::nothrow_t&) noexcept { std::free(p); }
+void operator delete[](void* p, const std::nothrow_t&) noexcept { std::free(p); }
 
 namespace {
 

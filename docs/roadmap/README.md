@@ -10,8 +10,8 @@ Start a phase with `/phase <n>`. Check state with `/status`.
 | Phase | Scope | Est. | State |
 |---|---|---|---|
 | [0](phase-00-infrastructure.md) | Infrastructure: presets, CI, `-Werror`, purity guards | ½ d | ✅ done (`340f0a7`) |
-| [1](phase-01-determinism.md) | Determinism hardening | 2 d | ✅ done, CI unverified (`phase-01/determinism`) |
-| [2](phase-02-entity-storage.md) | Entity storage: handles, pools, spatial index | 3 d | ✅ done, CI unverified |
+| [1](phase-01-determinism.md) | Determinism hardening | 2 d | ✅ done, **CI verified** |
+| [2](phase-02-entity-storage.md) | Entity storage: handles, pools, spatial index | 3 d | ✅ done (`phase-02/entity-storage`, PR #4) |
 | [3](phase-03-content.md) | Data-driven content + hot reload | 3 d | ⬜ **next** |
 | [4](phase-04-systems.md) | Systems split, damage pipeline, event queue | 2 d | ⬜ |
 | [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 4-5 d | ⬜ ⚠️ |
@@ -39,14 +39,13 @@ Two dependencies are load-bearing:
 
 ## Open items (owner decisions, not phase work)
 
-- **Push `phase-01/determinism` and watch the CI run.** This is now the blocking open item for
-  the whole project, not a tidy-up. CI has still **never executed** — everything through Phase
-  1 is green on macOS locally only. Phase 1's entire point is the `determinism` +
-  `determinism-compare` jobs proving the simulation is bit-identical on three operating
-  systems, and until that runs, ADR 0002's float-with-discipline decision remains a hope
-  rather than a property. Also still unproven: the Linux and Windows legs generally, and the
-  `app` job's X11/Wayland package list, which was written from knowledge rather than a green
-  run.
+- ~~**Push `phase-01/determinism` and watch the CI run.**~~ **Done, and it passed.** CI first
+  executed on 2026-08-22 against PR #4. The `determinism-compare` job reports *"All 6 traces
+  agree over 3000 ticks: macos-debug, macos-release, ubuntu-debug, ubuntu-release,
+  windows-debug, windows-release"*, and the follow-up diff against the committed
+  `reference_trace.tsv` is clean. ADR 0002's float-with-discipline decision is now a measured
+  property rather than a hope. The Linux and Windows legs are green generally, and the `app`
+  job's X11/Wayland package list built on a real runner.
 - **Re-tune the two shifted timers.** The tick conversion moved the spawn interval from 46 to
   45 ticks (waves arrive ~2.2% faster) and projectile lifetime from 181 to 180. Both are
   correct engineering and neither is a design decision anyone made. Balance is the owner's

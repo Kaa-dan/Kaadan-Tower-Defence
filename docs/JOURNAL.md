@@ -8,6 +8,38 @@ will matter in six months belongs in an ADR, not here.
 
 ---
 
+## 2026-08-22 — CI ran for the first time, and one ASan bug in the new tests
+
+Phase 2 opened as PR #4, which is what finally triggered CI. Two results.
+
+**The determinism proof landed.** `determinism-compare`: *"All 6 traces agree over 3000 ticks:
+macos-debug, macos-release, ubuntu-debug, ubuntu-release, windows-debug, windows-release"*,
+and the diff against the committed `reference_trace.tsv` is clean. This was the project's
+blocking open item through two phases. ADR 0002's float-with-discipline bet is now measured
+rather than assumed, and the `app` job's X11/Wayland package list built on a real runner.
+
+**One job failed, and it was mine.** All six hash tests failed under ASan on Linux while
+everything passed on macOS. The cause was in `tests/test_storage.cpp`, not in the simulation:
+the allocation counter replaces the global `operator new`, and I replaced the throwing forms
+but not the nothrow ones. Deletes are not matched to news by which overload allocated —
+ordinary `operator delete` frees nothrow-new memory too — so an ASan-allocated block went into
+`std::free` and ASan correctly called alloc-dealloc-mismatch.
+
+What made it platform-specific is the part worth remembering: libstdc++'s `std::stable_sort`
+takes its merge buffer from `std::get_temporary_buffer`, which calls
+`operator new(n, std::nothrow)`. `World::serialize` sorts entities into canonical id order on
+every `checksum()`. libc++ does not use that path, so macOS was green and Linux was red for a
+standard-library implementation detail. **The local `asan` preset cannot catch this class on
+macOS** — only CI can, which is a decent argument for pushing early rather than polishing
+locally.
+
+Fixed by replacing the nothrow forms as well. The over-aligned (`align_val_t`) forms are
+deliberately left to the default implementation: they pair only with the aligned deletes, which
+are also untouched, so neither half can mismatch — and replacing them would need
+`std::aligned_alloc`, which MSVC does not have.
+
+---
+
 ## 2026-08-21 — Phase 2: entity storage
 
 Pools, generation handles, a spatial index, and the four known-wrong entries that were waiting
