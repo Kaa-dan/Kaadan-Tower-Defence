@@ -2,12 +2,18 @@
 
 #include "game/Hash.h"
 
-#include <algorithm>
-#include <limits>
-
 namespace ktd {
 
 World::World(int width, int height, std::uint64_t seed) : grid_(width, height), rng_(seed) {
+    // step() must not allocate, so every per-tick buffer gets its capacity here.
+    // The numbers are headroom for a busy late wave, not hard limits: exceeding
+    // one costs a single reallocation, not a bug.
+    enemies_.reserve(512);
+    towers_.reserve(128);
+    projectiles_.reserve(512);
+    enemyRemovals_.reserve(64);
+    projectileRemovals_.reserve(128);
+
     spawn_ = {0, height / 2};
     goal_ = {width - 1, height / 2};
 
@@ -33,6 +39,9 @@ void World::step() {
 
     stepWaveDirector();
     stepEnemies();
+    // Rebuilt after the enemies move and before the towers look for them, so a
+    // tower never targets an enemy at last tick's position.
+    enemyIndex_.rebuild(grid_.width(), grid_.height(), enemies_.items());
     stepTowers();
     stepProjectiles();
 
@@ -88,7 +97,6 @@ void World::stepWaveDirector() {
 
 void World::spawnEnemy() {
     Enemy enemy;
-    enemy.id = nextId_++;
     enemy.position = Grid::centerOf(spawn_);
     // Spread arrivals across the tile so a wave does not render as one blob.
     enemy.position.y += rng_[RngStream::SpawnJitter].range(-0.25f, 0.25f);
@@ -96,13 +104,14 @@ void World::spawnEnemy() {
     enemy.health = enemy.maxHealth;
     enemy.speed = config::kEnemyBaseSpeed * waveSpeedScale_;
 
-    enemies_.push_back(enemy);
+    // The pool stamps enemy.id from its own sequence.
+    enemies_.create(enemy);
 }
 
 // --- enemies ---------------------------------------------------------------
 
 void World::stepEnemies() {
-    for (Enemy& enemy : enemies_) {
+    for (Enemy& enemy : enemies_.items()) {
         const Cell current = Grid::cellOf(enemy.position);
 
         // Steer toward the centre of the next tile on the flow field. Aiming
@@ -122,64 +131,52 @@ void World::stepEnemies() {
     }
 
     // Enemies that reached the goal cost a life and leave the field.
-    const Vec2 goalCenter = Grid::centerOf(goal_);
-    const auto reachedGoal = [&](const Enemy& e) {
-        return lengthSq(e.position - goalCenter) <= config::kEnemyRadius * config::kEnemyRadius;
-    };
+    //
+    // A cell test, not a radius test. The old version asked whether the enemy
+    // was within kEnemyRadius of the goal's centre, which a fast enemy could
+    // step straight over: it would pass the goal and keep walking, never
+    // registering a leak, and the player would lose no life for an enemy that
+    // plainly got through (known-wrong #6).
+    //
+    // The cell test cannot be tunnelled, and the reason is the movement code
+    // above rather than anything here. An enemy always steers at the centre of
+    // an adjacent tile and clamps exactly onto it when its travel would
+    // overshoot, so it advances at most one tile per tick and always lands on
+    // centres. There is no step that can jump the goal cell.
+    const auto reachedGoal = [&](const Enemy& e) { return Grid::cellOf(e.position) == goal_; };
 
-    for (const Enemy& enemy : enemies_) {
-        if (reachedGoal(enemy)) {
+    // Collected first, destroyed second. Destroying inside the loop would
+    // swap-and-pop an entity the loop has not visited yet into a slot it has
+    // already passed, and that enemy would leak without costing a life.
+    enemyRemovals_.clear();
+    for (std::size_t i = 0; i < enemies_.size(); ++i) {
+        if (reachedGoal(enemies_.items()[i])) {
+            enemyRemovals_.push_back(enemies_.handleAt(i));
             --lives_;
             ++leaked_;
         }
     }
-    enemies_.erase(std::remove_if(enemies_.begin(), enemies_.end(), reachedGoal), enemies_.end());
+    for (const EnemyId id : enemyRemovals_) {
+        enemies_.destroy(id);
+    }
 }
 
 // --- towers ----------------------------------------------------------------
 
-const Enemy* World::findTarget(const Tower& tower) const {
-    // "Furthest along the path" targeting: of everything in range, shoot the
-    // enemy closest to the goal. This is the standard TD default because it
-    // prioritises the leaks that actually cost the player a life.
-    const Vec2 origin = Grid::centerOf(tower.cell);
-    const float rangeSq = tower.range * tower.range;
-
-    const Enemy* best = nullptr;
-    int bestDistance = std::numeric_limits<int>::max();
-
-    for (const Enemy& enemy : enemies_) {
-        if (lengthSq(enemy.position - origin) > rangeSq) {
-            continue;
-        }
-        const int toGoal = flow_.distance(Grid::cellOf(enemy.position));
-        if (toGoal < 0) {
-            continue;
-        }
-        // Ties are common, not rare: toGoal is a coarse per-tile BFS integer,
-        // so every enemy sharing a tile ties. Breaking the tie on entity id
-        // rather than on position in enemies_ is what ADR 0004 requires, and it
-        // is free to do now. Today the two happen to agree, because enemies_ is
-        // only ever appended to and erased in order -- but Phase 2's
-        // swap-and-pop makes array position a function of destruction history,
-        // and every replay recorded before that change would silently desync
-        // with nothing in the code explaining why.
-        if (best == nullptr || toGoal < bestDistance ||
-            (toGoal == bestDistance && enemy.id < best->id)) {
-            bestDistance = toGoal;
-            best = &enemy;
-        }
-    }
-    return best;
+EnemyId World::findTarget(const Tower& tower) const {
+    const std::uint32_t slot =
+        selectTarget<Enemy>(enemies_.items(), enemyIndex_, flow_, tower.cell, tower.range);
+    return slot == kNoTarget ? EnemyId{} : enemies_.handleAt(slot);
 }
 
 void World::stepTowers() {
-    for (Tower& tower : towers_) {
+    for (Tower& tower : towers_.items()) {
         if (tower.cooldown > 0) {
             --tower.cooldown;
         }
 
-        const Enemy* target = findTarget(tower);
+        const EnemyId targetId = findTarget(tower);
+        const Enemy* target = enemies_.get(targetId);
         if (target == nullptr) {
             continue;
         }
@@ -195,61 +192,70 @@ void World::stepTowers() {
         Projectile shot;
         shot.position = origin;
         shot.velocity = tower.aim * config::kProjectileSpeed;
+        shot.target = targetId;
         shot.targetId = target->id;
         shot.damage = tower.damage;
-        projectiles_.push_back(shot);
+        projectiles_.create(shot);
     }
 }
 
 // --- projectiles -----------------------------------------------------------
 
-Enemy* World::findEnemy(EntityId id) {
-    for (Enemy& enemy : enemies_) {
-        if (enemy.id == id) {
-            return &enemy;
-        }
-    }
-    return nullptr;
-}
-
 void World::stepProjectiles() {
-    std::vector<EntityId> killedThisStep;
+    enemyRemovals_.clear();
+    projectileRemovals_.clear();
 
-    for (Projectile& shot : projectiles_) {
+    for (std::size_t i = 0; i < projectiles_.size(); ++i) {
+        Projectile& shot = projectiles_.items()[i];
         ++shot.age;
 
+        // One O(1) handle lookup, where this used to run two full linear scans
+        // over every enemy for every projectile -- and the second scan asked the
+        // same question as the first (known-wrong #3). A dead target resolves to
+        // nullptr through the generation check rather than needing a search to
+        // discover it is gone.
+        // borrow() rather than get(): a Ref re-checks the pool's mutation epoch
+        // on every dereference. This is the exact loop that used to hold a raw
+        // pointer into a std::vector, and the exact place a future change --
+        // area damage that kills on impact, say -- would be tempted to destroy
+        // an enemy mid-iteration and leave this pointer naming whatever
+        // swap-and-pop moved into its place. That now trips an assert in a debug
+        // build instead of silently damaging the wrong enemy in a release one.
+        auto target = enemies_.borrow(shot.target);
+
         // Home in while the target lives; otherwise fly straight and expire.
-        if (const Enemy* target = findEnemy(shot.targetId)) {
+        if (target) {
             shot.velocity = normalized(target->position - shot.position) * config::kProjectileSpeed;
         }
         shot.position = shot.position + shot.velocity * config::kFixedDt;
 
-        Enemy* target = findEnemy(shot.targetId);
-        if (target == nullptr) {
-            continue;
+        if (target) {
+            const float hitRadius = config::kProjectileHitRadius + config::kEnemyRadius;
+            if (lengthSq(target->position - shot.position) <= hitRadius * hitRadius) {
+                target->health -= shot.damage;
+                shot.age = config::kProjectileLifetimeTicks;  // consumed on impact
+                if (target->health <= 0.0f) {
+                    enemyRemovals_.push_back(shot.target);
+                }
+            }
         }
 
-        const float hitRadius = config::kProjectileHitRadius + config::kEnemyRadius;
-        if (lengthSq(target->position - shot.position) <= hitRadius * hitRadius) {
-            target->health -= shot.damage;
-            shot.age = config::kProjectileLifetimeTicks;  // consumed on impact
-            if (target->health <= 0.0f) {
-                killedThisStep.push_back(target->id);
-            }
+        if (shot.age >= config::kProjectileLifetimeTicks) {
+            projectileRemovals_.push_back(projectiles_.handleAt(i));
         }
     }
 
-    projectiles_.erase(std::remove_if(projectiles_.begin(), projectiles_.end(),
-                                      [](const Projectile& p) {
-                                          return p.age >= config::kProjectileLifetimeTicks;
-                                      }),
-                       projectiles_.end());
+    for (const ProjectileId id : projectileRemovals_) {
+        projectiles_.destroy(id);
+    }
 
-    for (const EntityId id : killedThisStep) {
-        const auto it = std::find_if(enemies_.begin(), enemies_.end(),
-                                     [id](const Enemy& e) { return e.id == id; });
-        if (it != enemies_.end()) {
-            enemies_.erase(it);
+    // Two shots can land on the same enemy in one tick, so the same handle can
+    // appear twice. destroy() returns false the second time -- the generation
+    // has already moved on -- which is what keeps the payout from doubling.
+    // Relying on that rather than de-duplicating first is the point of a
+    // generation handle: the stale case is handled, not avoided.
+    for (const EnemyId id : enemyRemovals_) {
+        if (enemies_.destroy(id)) {
             gold_ += config::kGoldPerKill;
             ++killed_;
         }
@@ -270,22 +276,45 @@ PlacementResult World::placeTower(Cell cell) {
     }
 
     // Refuse to strand an enemy that is standing on the tile right now.
-    for (const Enemy& enemy : enemies_) {
+    for (const Enemy& enemy : enemies_.items()) {
         if (Grid::cellOf(enemy.position) == cell) {
             return PlacementResult::BlockedTile;
         }
     }
 
     grid_.set(cell, Tile::Tower);
+    ++gridVersion_;  // invalidates the placement preview memo
     flow_.build(grid_, goal_);
 
     Tower tower;
-    tower.id = nextId_++;
     tower.cell = cell;
-    towers_.push_back(tower);
+    towers_.create(tower);
 
     gold_ -= config::kTowerCost;
     return PlacementResult::Placed;
+}
+
+bool World::canPlaceAt(Cell cell) const {
+    // The placement preview asks this every frame for a cell the mouse usually
+    // has not left, and the answer can only change when a tower changes the
+    // grid. Memoizing on (cell, gridVersion_) turns the common case into two
+    // integer compares; the miss runs one BFS over reused buffers, where the old
+    // code copied the whole Grid and allocated a std::deque every single frame
+    // (known-wrong #4).
+    if (placementCached_ && placementVersion_ == gridVersion_ && placementCell_ == cell) {
+        return placementResult_;
+    }
+
+    bool result = false;
+    if (grid_.inBounds(cell) && grid_.at(cell) == Tile::Open && cell != spawn_ && cell != goal_) {
+        result = placement_.routeSurvives(grid_, cell, spawn_, goal_);
+    }
+
+    placementCached_ = true;
+    placementCell_ = cell;
+    placementVersion_ = gridVersion_;
+    placementResult_ = result;
+    return result;
 }
 
 }  // namespace ktd

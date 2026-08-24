@@ -25,7 +25,7 @@ using namespace ktd;
 // then update the constant in the same commit that made it, and say so in the
 // message. Updating it separately hides exactly what this test exists to show.
 TEST(determinism_golden) {
-    constexpr std::uint64_t kGoldenChecksum = 0xF70F77F024E9AE55ULL;
+    constexpr std::uint64_t kGoldenChecksum = 0x8D8C026A6A51F571ULL;
 
     World world(config::kGridWidth, config::kGridHeight, scenario::kSeed);
     scenario::run(world, [](std::uint64_t, const World&) {});

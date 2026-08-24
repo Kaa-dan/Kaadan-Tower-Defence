@@ -8,6 +8,97 @@ will matter in six months belongs in an ADR, not here.
 
 ---
 
+## 2026-08-22 — CI ran for the first time, and one ASan bug in the new tests
+
+Phase 2 opened as PR #4, which is what finally triggered CI. Two results.
+
+**The determinism proof landed.** `determinism-compare`: *"All 6 traces agree over 3000 ticks:
+macos-debug, macos-release, ubuntu-debug, ubuntu-release, windows-debug, windows-release"*,
+and the diff against the committed `reference_trace.tsv` is clean. This was the project's
+blocking open item through two phases. ADR 0002's float-with-discipline bet is now measured
+rather than assumed, and the `app` job's X11/Wayland package list built on a real runner.
+
+**One job failed, and it was mine.** All six hash tests failed under ASan on Linux while
+everything passed on macOS. The cause was in `tests/test_storage.cpp`, not in the simulation:
+the allocation counter replaces the global `operator new`, and I replaced the throwing forms
+but not the nothrow ones. Deletes are not matched to news by which overload allocated —
+ordinary `operator delete` frees nothrow-new memory too — so an ASan-allocated block went into
+`std::free` and ASan correctly called alloc-dealloc-mismatch.
+
+What made it platform-specific is the part worth remembering: libstdc++'s `std::stable_sort`
+takes its merge buffer from `std::get_temporary_buffer`, which calls
+`operator new(n, std::nothrow)`. `World::serialize` sorts entities into canonical id order on
+every `checksum()`. libc++ does not use that path, so macOS was green and Linux was red for a
+standard-library implementation detail. **The local `asan` preset cannot catch this class on
+macOS** — only CI can, which is a decent argument for pushing early rather than polishing
+locally.
+
+Fixed by replacing the nothrow forms as well. The over-aligned (`align_val_t`) forms are
+deliberately left to the default implementation: they pair only with the aligned deletes, which
+are also untouched, so neither half can mismatch — and replacing them would need
+`std::aligned_alloc`, which MSVC does not have.
+
+---
+
+## 2026-08-21 — Phase 2: entity storage
+
+Pools, generation handles, a spatial index, and the four known-wrong entries that were waiting
+on them. 61 tests pass under `core`, `core-release` and `asan`; the full SDL app builds;
+clang-format 20.1.7 is clean.
+
+**The migration held the hash.** One deliberate rebaseline, taken up front and on purpose:
+the goal-tunneling fix, projectiles gaining an id, and per-type id counters replacing the
+shared one. Everything after that — `Pool` with swap-and-pop, typed handles, the spatial
+index, the flow-field direction cache, the placement memo — landed with `determinism_golden`
+and all 3,000 ticks of the reference trace **unchanged**. That is the only real evidence the
+storage refactor preserved behaviour, and it is worth more than the tests.
+
+The trick that made it possible was serializing in ascending id order instead of array order,
+done before any storage changed. Array order is a function of destruction history; id order is
+not, and it happened to match the old order exactly. See [ADR 0009](decisions/0009-handles-address-ids-identify.md).
+
+**Three things worth remembering:**
+
+*ADR 0004 was subtly wrong and it took implementing it to see.* It says tie-breaks must resolve
+on handle ordering. But a handle's slot index comes off the free list, so it is *also* a
+function of destruction history — ordering on handles moves the coupling down a level instead
+of removing it. Entities now carry a handle (address, runtime-only, never serialized) and a
+monotonic id (identity, the only thing tie-breaks and the byte stream may read). The rule to
+hold: nothing in `serialize()` may be a handle, or the first Phase 7 save file is corrupt.
+
+*The golden hash did not catch a real behaviour change, twice.* Caching the BFS parent as the
+flow-field direction is the obvious optimisation and it is a **different route** from what
+`next()` used to return — the old code returned the first neighbour in `kNeighbours` order that
+was one step closer, not whichever cell discovered it. On the default level the two agree, so
+the hash stayed green. It would have diverged on the first level with a symmetric detour, and
+shown up as an unexplained replay desync months later. The direction is now derived from the
+finished distance field, which reproduces the old routing by construction. Same shape of near
+miss in the spatial index: clamping only the near end of a query box collapsed off-board boxes
+to empty and dropped entities the brute-force scan found. The randomized equivalence test
+caught that one; nothing else would have.
+
+*A rule that cannot tie cannot be tested.* `targeting_ties_break_on_handle_not_position` was
+written first against a live game and failed on `ticksWithATie > 0` — the current level cannot
+produce a tie at all. One lane, one spawn per 45 ticks, one speed per wave, so enemies stay
+more than a tile apart and never share a BFS distance. The tie-break is dormant today and
+load-bearing the moment there are branching routes or mixed speeds. Targeting moved to
+`game/Targeting.h` so the tie could be constructed directly; the live-game half stayed as
+`indexed_targeting_matches_bruteforce_in_a_real_run`, which is what would catch a spatial-index
+mistake.
+
+**Measured, not asserted** (`stress_5000_enemies`, 3,750 enemies / 200 towers, Release): the
+indexed query is 178 us against 423 us for the brute-force scan it replaced, and the real
+in-game saving is larger because the old projectile code ran that scan *twice* per projectile.
+Debug is 638 us against 10,564. No wall-clock assertion — CI timing is far too noisy to gate
+on. What it does assert is that both methods return the identical set at that scale.
+
+**What this phase does not do.** `stress_5000_enemies` drives the real `Pool`, `SpatialIndex`
+and targeting rule, but not `World::step()` — nothing today can put 5,000 enemies into a World,
+because wave size is a function of the wave number and lives run out first. Stepping the real
+world at that scale needs a way to author a starting state, which is Phase 3's content work.
+
+---
+
 ## 2026-08-20 — Phase 1: determinism hardening
 
 Ten commits on `phase-01/determinism`, branched from `main` after the harness PR merged.

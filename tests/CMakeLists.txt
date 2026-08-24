@@ -5,7 +5,10 @@ set(KTD_TEST_SOURCES
     test_hash.cpp
     test_math.cpp
     test_path.cpp
+    test_pool.cpp
     test_rng.cpp
+    test_spatial.cpp
+    test_storage.cpp
     test_world.cpp
 )
 

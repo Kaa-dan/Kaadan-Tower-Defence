@@ -104,8 +104,11 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered, bool p
 
     // --- placement preview -------------------------------------------------
     if (grid.inBounds(hovered)) {
-        const bool placeable =
-            world.canAfford() && canPlaceTower(grid, hovered, world.spawn(), world.goal());
+        // world.canPlaceAt rather than the free canPlaceTower: this runs every
+        // frame, and the World version memoizes on the hover cell and a grid
+        // version so a stationary mouse costs two integer compares instead of a
+        // Grid copy and a BFS.
+        const bool placeable = world.canAfford() && world.canPlaceAt(hovered);
         renderer.drawQuad(Grid::centerOf(hovered), {0.94f, 0.94f},
                           placeable ? kHoverOk : kHoverBad);
         if (placeable) {
