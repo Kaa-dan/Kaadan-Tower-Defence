@@ -18,7 +18,7 @@
 #include <cstdio>
 
 int main() {
-    ktd::World world(ktd::config::kGridWidth, ktd::config::kGridHeight, scenario::kSeed);
+    ktd::World world(scenario::content(), scenario::kSeed);
 
     // Hex, zero-padded and fixed-width, so the traces diff cleanly line by line
     // and a divergence shows up as a single changed line rather than a shift.

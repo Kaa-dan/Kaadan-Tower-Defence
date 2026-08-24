@@ -68,7 +68,8 @@ Cell GameView::pointerToCell(Vec2 pointer, const InputState& input) const {
     return Grid::cellOf(world);
 }
 
-void GameView::draw(Renderer& renderer, const World& world, Cell hovered, bool paused) const {
+void GameView::draw(Renderer& renderer, const World& world, Cell hovered,
+                    content::TowerDefId selected, bool paused) const {
     const Grid& grid = world.grid();
 
     // --- board -------------------------------------------------------------
@@ -108,13 +109,13 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered, bool p
         // frame, and the World version memoizes on the hover cell and a grid
         // version so a stationary mouse costs two integer compares instead of a
         // Grid copy and a BFS.
-        const bool placeable = world.canAfford() && world.canPlaceAt(hovered);
+        const bool placeable = world.canAfford(selected) && world.canPlaceAt(hovered);
         renderer.drawQuad(Grid::centerOf(hovered), {0.94f, 0.94f},
                           placeable ? kHoverOk : kHoverBad);
         if (placeable) {
-            renderer.drawRectOutline(Grid::centerOf(hovered),
-                                     {config::kTowerRange * 2.0f, config::kTowerRange * 2.0f},
-                                     0.05f, kHoverOk);
+            const float range = world.content().tower(selected).range;
+            renderer.drawRectOutline(Grid::centerOf(hovered), {range * 2.0f, range * 2.0f}, 0.05f,
+                                     kHoverOk);
         }
     }
 
@@ -128,7 +129,7 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered, bool p
 
     // --- enemies -----------------------------------------------------------
     for (const Enemy& enemy : world.enemies()) {
-        const float size = config::kEnemyRadius * 2.0f;
+        const float size = world.content().enemy(enemy.type).radius * 2.0f;
         renderer.drawQuad(enemy.position, {size, size}, kEnemy);
 
         // Health bar, only once damaged.

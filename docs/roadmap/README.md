@@ -12,8 +12,8 @@ Start a phase with `/phase <n>`. Check state with `/status`.
 | [0](phase-00-infrastructure.md) | Infrastructure: presets, CI, `-Werror`, purity guards | ½ d | ✅ done (`340f0a7`) |
 | [1](phase-01-determinism.md) | Determinism hardening | 2 d | ✅ done, **CI verified** |
 | [2](phase-02-entity-storage.md) | Entity storage: handles, pools, spatial index | 3 d | ✅ done (`phase-02/entity-storage`, PR #4) |
-| [3](phase-03-content.md) | Data-driven content + hot reload | 3 d | ⬜ **next** |
-| [4](phase-04-systems.md) | Systems split, damage pipeline, event queue | 2 d | ⬜ |
+| [3](phase-03-content.md) | Data-driven content + hot reload | 3 d | ✅ done (branch pending) |
+| [4](phase-04-systems.md) | Systems split, damage pipeline, event queue | 2 d | ⬜ **next** |
 | [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 4-5 d | ⬜ ⚠️ |
 | [6](phase-06-presentation.md) | Text, input, filesystem, interpolation | 4 d | ⬜ ⚠️ |
 | [7](phase-07-persistence.md) | Save / replay / settings | 2 d | ⬜ |
@@ -59,6 +59,26 @@ Two dependencies are load-bearing:
   undefended run loses lives slightly faster), and projectiles gained a serialized id. Any
   replay recorded before this is invalid. Everything after that step — the whole pool and
   index refactor — left the hash untouched.
+- **Re-baselined the determinism hash again.** Phase 3 moved the golden checksum to
+  `0x51D74AAE506DE6CA` and regenerated `tests/data/reference_trace.tsv`. Two causes, both
+  intended: towers now serialize a type id where range and damage used to be, and the content
+  fingerprint is the first field in the stream ([ADR 0010](../decisions/0010-content-fingerprint-in-the-hash.md)).
+  Any replay recorded before this is invalid. The scripted scenario is unchanged and still
+  builds only tower type 0, so the underlying run is the same run.
+- **A balance edit now fails `determinism_golden` on purpose.** Changing a number in
+  `content/` changes the content fingerprint and therefore every checksum. Regenerating the
+  trace (`./build/core/tests/ktd_hashdump > tests/data/reference_trace.tsv`) and updating the
+  constant in `tests/test_hash.cpp` is part of making a balance change, in the same commit.
+- **The second tower type is untuned.** `content/towers.ktd` ships a "Cannon" so the data path
+  demonstrably carries behaviour and not just numbers. Its cost, range, damage and reload are a
+  starting point, not a balance decision — nobody has played against it.
+- **Hot reload is untested by hand.** F5 builds, and its load ordering, error recovery and
+  replay determinism are covered by tests, but nobody has pressed the key and watched a run
+  rebalance. That is a playtest, which is the owner's.
+- **`ItemDef` and `SkillNodeDef` were deliberately not written.** The Phase 3 spec lists them,
+  but nothing consumes them and ADR 0003's behaviour verbs are Phase 4's work. An empty struct
+  written now would fossilise a guess. Same reasoning for damage types, resistances, status
+  effects and targeting policies.
 - **`stress_5000_enemies` does not step the real `World`.** Nothing today can put 5,000
   enemies into a world: wave size is a function of the wave number and lives run out first. It
   drives the real `Pool`, `SpatialIndex` and targeting rule instead. A true end-to-end stress
@@ -74,10 +94,12 @@ Bugs in the current code, not missing features. Each names the phase that fixes 
 | ~~2~~ | ~~`findTarget` returns a raw `const Enemy*` into a vector~~ — fixed in Phase 2: it returns an `EnemyId` handle, and the projectile loop borrows through an epoch-checked `Ref`. Tie-breaks resolve on the stable entity id ([ADR 0009](../decisions/0009-handles-address-ids-identify.md)) | ~~`game/src/World.cpp`~~ | ✅ 2 |
 | ~~3~~ | ~~O(P×E) double linear scan per frame~~ — fixed in Phase 2: one O(1) handle lookup per projectile, and targeting queries a tile-bucket index | ~~`game/src/World.cpp:197,202`~~ | ✅ 2 |
 | ~~4~~ | ~~`canPlaceTower` copies the whole `Grid` and flood-fills every frame~~ — fixed in Phase 2: `World::canPlaceAt` treats one cell as blocked instead of copying, reuses its BFS buffers, and memoizes on `(cell, gridVersion)`. `placement_preview_allocates_nothing` pins it | ~~`game/src/Path.cpp:94`~~ | ✅ 2 |
+| 11 | `docs/ARCHITECTURE.md`'s "Entity storage" section still describes the pre-Phase-2 `std::vector` design and says "Phase 2 moves to…". Documentation drift from Phase 2, spotted while updating the Content section | `docs/ARCHITECTURE.md:58` | unassigned |
+| 10 | The `ktd_tests` CTest list is scraped at **configure** time. Adding a `TEST()` to an existing file needs no CMake edit — but `cmake --build` alone will not register it, and the suite reports green while the new tests have never run. Reconfigure after adding tests | `tests/CMakeLists.txt:27` | unassigned |
 | 5 | No render interpolation — visible judder above 60 Hz, which is most Steam users | `app/main.cpp:94` | 6 |
 | ~~6~~ | ~~Goal detection is a radius test; fast enemies can tunnel past~~ — fixed in Phase 2: a cell test, which the movement clamp makes tunnel-proof | ~~`game/src/World.cpp:113`~~ | ✅ 2 |
 | ~~7~~ | ~~`Rng::rangeInt` has modulo bias; seeds are not decorrelated~~ — fixed in Phase 1: Lemire's method + splitmix64 mixing | ~~`game/include/game/Types.h:52`~~ | ✅ 1 |
 | 8 | `waveInProgress()` stays true forever once `state_` is `Defeat`, because `step()` returns early and the field never clears. Harmless in the game; it hangs any loop that waits on it | `game/include/game/World.h`, `game/src/World.cpp:25-27` | unassigned |
-| 9 | Targeting ties are **unreachable on the current level** — one lane, one spawn per 45 ticks, one speed per wave, so no two enemies ever share a BFS distance. The tie-break rule is correct and tested directly, but nothing in a real run exercises it. Not a bug today; it means a level with branching routes or mixed speeds ships an untested-in-anger code path | `game/include/game/Targeting.h` | 3 |
+| 9 | Targeting ties are **unreachable on the current level** — partially addressed in Phase 3: a wave can now mix enemy types at different speeds (`waves_run_authored_first_then_endless` covers the authoring), which is the mechanism that makes two enemies able to share a BFS distance at all. But the *shipped* level is still one lane at one speed, so a real run still never hits a tie. Closing this the rest of the way is level design, not code | `game/include/game/Targeting.h` | level design |
 
 If you find a new one, add it here rather than fixing it inside an unrelated phase.

@@ -19,6 +19,11 @@ struct InputState {
 
     bool restartPressed = false;
     bool pausePressed = false;
+    bool reloadPressed = false;  // F5: re-read the content files
+
+    // Which tower type to build, chosen with the number keys. -1 means the
+    // selection did not change this frame.
+    int towerSelection = -1;
 
     int windowWidth = 0;
     int windowHeight = 0;
@@ -46,6 +51,14 @@ public:
     virtual double now() const = 0;
 
     virtual void setWindowTitle(const std::string& title) = 0;
+
+    // Reads a whole file into `out`. Returns false with a reason in `error`.
+    //
+    // The game core parses content but never opens anything -- parsing a string
+    // is not file I/O -- so this is the seam where bytes enter. A console
+    // backend replaces it with that platform's package reader and nothing
+    // upstream changes.
+    virtual bool readFile(const std::string& path, std::string& out, std::string& error) const = 0;
 
     // Resolves a graphics-API entry point. The platform owns the graphics
     // context (it belongs to the window), so it also owns symbol lookup. The

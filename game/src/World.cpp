@@ -4,7 +4,11 @@
 
 namespace ktd {
 
-World::World(int width, int height, std::uint64_t seed) : grid_(width, height), rng_(seed) {
+World::World(const content::ContentDb& content, std::uint64_t seed)
+    : content_(&content),
+      contentFingerprint_(content.fingerprint()),
+      grid_(content.level().width, content.level().height),
+      rng_(seed) {
     // step() must not allocate, so every per-tick buffer gets its capacity here.
     // The numbers are headroom for a busy late wave, not hard limits: exceeding
     // one costs a single reallocation, not a bug.
@@ -14,16 +18,21 @@ World::World(int width, int height, std::uint64_t seed) : grid_(width, height), 
     enemyRemovals_.reserve(64);
     projectileRemovals_.reserve(128);
 
-    spawn_ = {0, height / 2};
-    goal_ = {width - 1, height / 2};
-
-    // A few walls so the default level is not an empty box. Purely cosmetic
-    // for now; a real level loader replaces this.
-    for (int y = 3; y < height - 3; ++y) {
-        if (y == height / 2) continue;  // leave the corridor open
-        grid_.set({width / 3, y}, Tile::Wall);
-        grid_.set({2 * width / 3, y}, Tile::Wall);
+    // Level geometry, the route and the starting economy all arrive as data.
+    // This used to be a hardcoded pair of wall columns with a comment promising
+    // a loader; the loader is content::load(), and it has already validated
+    // that a route from spawn to goal exists.
+    const content::LevelDef& level = content.level();
+    spawn_ = level.spawn;
+    goal_ = level.goal;
+    for (int y = 0; y < level.height; ++y) {
+        for (int x = 0; x < level.width; ++x) {
+            grid_.set({x, y}, level.at({x, y}));
+        }
     }
+    gold_ = level.startingGold;
+    lives_ = level.startingLives;
+    waveTimer_ = content.waves().gapTicks;
 
     flow_.build(grid_, goal_);
 }
@@ -53,9 +62,45 @@ void World::step() {
 
 // --- waves -----------------------------------------------------------------
 
+// How many enemies wave `wave` sends. Authored waves say so exactly; past the
+// end of the authored list the endless rule takes over and grows from there.
+int World::enemiesInWave(int wave) const {
+    const content::WaveRules& rules = content_->waves();
+    const int authored = static_cast<int>(rules.waves.size());
+    if (wave <= authored) {
+        return rules.waves[static_cast<std::size_t>(wave - 1)].totalEnemies();
+    }
+    const int beyond = wave - authored;  // 1 for the first endless wave
+    return rules.endless.firstCount + (beyond - 1) * rules.endless.addedPerWave;
+}
+
+// The type of the nth enemy of the current wave, counting from zero.
+//
+// Resolved per spawn from an index rather than by materialising the wave into a
+// queue, because a queue is a per-wave allocation and a member the serializer
+// would have to write. The composition is at most a handful of groups.
+content::EnemyDefId World::spawnTypeAt(int indexInWave) const {
+    const content::WaveRules& rules = content_->waves();
+    const int authored = static_cast<int>(rules.waves.size());
+    if (wave_ > authored) {
+        return rules.endless.enemy;
+    }
+
+    const content::WaveDef& def = rules.waves[static_cast<std::size_t>(wave_ - 1)];
+    int consumed = 0;
+    for (std::size_t group = 0; group < def.enemies.size(); ++group) {
+        consumed += def.counts[group];
+        if (indexInWave < consumed) {
+            return def.enemies[group];
+        }
+    }
+    return content::kNoDef;
+}
+
 void World::startNextWave() {
     ++wave_;
-    enemiesLeftToSpawn_ = config::kEnemiesInFirstWave + (wave_ - 1) * config::kEnemiesAddedPerWave;
+    enemiesLeftToSpawn_ = enemiesInWave(wave_);
+    spawnedInWave_ = 0;
     spawnTimer_ = 0;
 
     // Computed once here rather than per spawn. Two reasons, and only one of
@@ -63,8 +108,22 @@ void World::startNextWave() {
     // wave's difficulty is derived in the hot path from a value that must never
     // vary within the wave. Deriving it once at the wave boundary makes that
     // structural instead of merely true.
-    waveHealthScale_ = math::powi(config::kEnemyHealthGrowth, wave_ - 1);
-    waveSpeedScale_ = math::powi(config::kEnemySpeedGrowth, wave_ - 1);
+    //
+    // An authored wave is not scaled at all -- what the designer typed is what
+    // arrives, which is the whole reason to write one by hand. Only the endless
+    // progression compounds, and it counts from the first endless wave rather
+    // than from wave one, so authoring an opening wave does not silently shift
+    // the difficulty curve behind it.
+    const content::WaveRules& rules = content_->waves();
+    const int authored = static_cast<int>(rules.waves.size());
+    if (wave_ <= authored) {
+        waveHealthScale_ = 1.0f;
+        waveSpeedScale_ = 1.0f;
+    } else {
+        const int beyond = wave_ - authored;
+        waveHealthScale_ = math::powi(rules.endless.healthGrowth, beyond - 1);
+        waveSpeedScale_ = math::powi(rules.endless.speedGrowth, beyond - 1);
+    }
 }
 
 void World::stepWaveDirector() {
@@ -75,7 +134,7 @@ void World::stepWaveDirector() {
         if (spawnTimer_ == 0) {
             spawnEnemy();
             --enemiesLeftToSpawn_;
-            spawnTimer_ = config::kSpawnIntervalTicks;
+            spawnTimer_ = content_->waves().spawnIntervalTicks;
         }
         return;
     }
@@ -90,19 +149,27 @@ void World::stepWaveDirector() {
         --waveTimer_;
     }
     if (waveTimer_ == 0) {
-        waveTimer_ = config::kTimeBetweenWavesTicks;
+        waveTimer_ = content_->waves().gapTicks;
         startNextWave();
     }
 }
 
 void World::spawnEnemy() {
+    const content::EnemyDefId type = spawnTypeAt(spawnedInWave_);
+    ++spawnedInWave_;
+    if (type == content::kNoDef) {
+        return;  // an empty wave; the counter still advances so timing holds
+    }
+    const content::EnemyDef& def = content_->enemy(type);
+
     Enemy enemy;
+    enemy.type = type;
     enemy.position = Grid::centerOf(spawn_);
     // Spread arrivals across the tile so a wave does not render as one blob.
     enemy.position.y += rng_[RngStream::SpawnJitter].range(-0.25f, 0.25f);
-    enemy.maxHealth = config::kEnemyBaseHealth * waveHealthScale_;
+    enemy.maxHealth = def.health * waveHealthScale_;
     enemy.health = enemy.maxHealth;
-    enemy.speed = config::kEnemyBaseSpeed * waveSpeedScale_;
+    enemy.speed = def.speed * waveSpeedScale_;
 
     // The pool stamps enemy.id from its own sequence.
     enemies_.create(enemy);
@@ -164,13 +231,18 @@ void World::stepEnemies() {
 // --- towers ----------------------------------------------------------------
 
 EnemyId World::findTarget(const Tower& tower) const {
-    const std::uint32_t slot =
-        selectTarget<Enemy>(enemies_.items(), enemyIndex_, flow_, tower.cell, tower.range);
+    const std::uint32_t slot = selectTarget<Enemy>(enemies_.items(), enemyIndex_, flow_, tower.cell,
+                                                   content_->tower(tower.type).range);
     return slot == kNoTarget ? EnemyId{} : enemies_.handleAt(slot);
 }
 
 void World::stepTowers() {
     for (Tower& tower : towers_.items()) {
+        // Every number this tower fights with is read here, on the tick it
+        // fires. That is what makes a hot reload reach towers already standing
+        // on the board rather than only the ones built after it.
+        const content::TowerDef& def = content_->tower(tower.type);
+
         if (tower.cooldown > 0) {
             --tower.cooldown;
         }
@@ -187,14 +259,15 @@ void World::stepTowers() {
         if (tower.cooldown > 0) {
             continue;
         }
-        tower.cooldown = config::kTowerReloadTicks;
+        tower.cooldown = def.reloadTicks;
 
         Projectile shot;
         shot.position = origin;
-        shot.velocity = tower.aim * config::kProjectileSpeed;
+        shot.velocity = tower.aim * content_->projectile(def.projectile).speed;
         shot.target = targetId;
         shot.targetId = target->id;
-        shot.damage = tower.damage;
+        shot.type = def.projectile;
+        shot.damage = def.damage;
         projectiles_.create(shot);
     }
 }
@@ -207,6 +280,7 @@ void World::stepProjectiles() {
 
     for (std::size_t i = 0; i < projectiles_.size(); ++i) {
         Projectile& shot = projectiles_.items()[i];
+        const content::ProjectileDef& def = content_->projectile(shot.type);
         ++shot.age;
 
         // One O(1) handle lookup, where this used to run two full linear scans
@@ -225,22 +299,22 @@ void World::stepProjectiles() {
 
         // Home in while the target lives; otherwise fly straight and expire.
         if (target) {
-            shot.velocity = normalized(target->position - shot.position) * config::kProjectileSpeed;
+            shot.velocity = normalized(target->position - shot.position) * def.speed;
         }
         shot.position = shot.position + shot.velocity * config::kFixedDt;
 
         if (target) {
-            const float hitRadius = config::kProjectileHitRadius + config::kEnemyRadius;
+            const float hitRadius = def.hitRadius + content_->enemy(target->type).radius;
             if (lengthSq(target->position - shot.position) <= hitRadius * hitRadius) {
                 target->health -= shot.damage;
-                shot.age = config::kProjectileLifetimeTicks;  // consumed on impact
+                shot.age = def.lifetimeTicks;  // consumed on impact
                 if (target->health <= 0.0f) {
                     enemyRemovals_.push_back(shot.target);
                 }
             }
         }
 
-        if (shot.age >= config::kProjectileLifetimeTicks) {
+        if (shot.age >= def.lifetimeTicks) {
             projectileRemovals_.push_back(projectiles_.handleAt(i));
         }
     }
@@ -255,8 +329,14 @@ void World::stepProjectiles() {
     // Relying on that rather than de-duplicating first is the point of a
     // generation handle: the stale case is handled, not avoided.
     for (const EnemyId id : enemyRemovals_) {
+        // The bounty has to be read before the enemy is destroyed, and get()
+        // returns null for a handle a previous iteration already consumed --
+        // which is the same generation check that keeps the payout from
+        // doubling, now doing double duty.
+        const Enemy* victim = enemies_.get(id);
+        const int bounty = victim != nullptr ? content_->enemy(victim->type).bounty : 0;
         if (enemies_.destroy(id)) {
-            gold_ += config::kGoldPerKill;
+            gold_ += bounty;
             ++killed_;
         }
     }
@@ -264,8 +344,16 @@ void World::stepProjectiles() {
 
 // --- building --------------------------------------------------------------
 
-PlacementResult World::placeTower(Cell cell) {
-    if (gold_ < config::kTowerCost) {
+bool World::canAfford(content::TowerDefId type) const {
+    return type < content_->towers().size() && gold_ >= content_->tower(type).cost;
+}
+
+PlacementResult World::placeTower(Cell cell, content::TowerDefId type) {
+    if (type >= content_->towers().size()) {
+        return PlacementResult::UnknownTowerType;
+    }
+    const content::TowerDef& def = content_->tower(type);
+    if (gold_ < def.cost) {
         return PlacementResult::NotEnoughGold;
     }
     if (!grid_.inBounds(cell) || grid_.at(cell) != Tile::Open || cell == spawn_ || cell == goal_) {
@@ -288,9 +376,10 @@ PlacementResult World::placeTower(Cell cell) {
 
     Tower tower;
     tower.cell = cell;
+    tower.type = type;
     towers_.create(tower);
 
-    gold_ -= config::kTowerCost;
+    gold_ -= def.cost;
     return PlacementResult::Placed;
 }
 

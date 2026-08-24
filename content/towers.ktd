@@ -1,0 +1,39 @@
+# Towers and the projectiles they fire.
+#
+# Adding a tower type is this file plus nothing: no recompile, no code change,
+# and F5 in the running game re-simulates the current run against the edit.
+#
+# Ranges are in tiles. Reload is authored in ticks rather than shots-per-second
+# because the simulation counts ticks and a rate that does not divide 60 evenly
+# would be silently rounded -- see ADR 0007.
+
+[projectile.bolt]
+speed = 9.0
+hit_radius = 0.18
+lifetime_ticks = 180
+
+[projectile.shell]
+speed = 6.0
+hit_radius = 0.3
+lifetime_ticks = 240
+
+# The original tower, with the numbers Config.h used to hold, unchanged.
+[tower.arrow]
+name = "Arrow Tower"
+cost = 40
+range = 3.2
+damage = 10.0
+reload_ticks = 38
+projectile = "bolt"
+
+# The second type exists to prove the data path carries behaviour, not just
+# numbers: longer reach and a much harder hit, paid for in cost and reload.
+# These numbers are a starting point for the owner to tune, not a balance
+# decision -- nobody has played against this yet.
+[tower.cannon]
+name = "Cannon"
+cost = 90
+range = 4.5
+damage = 34.0
+reload_ticks = 105
+projectile = "shell"

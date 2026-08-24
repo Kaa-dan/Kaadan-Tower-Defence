@@ -1,3 +1,4 @@
+#include "Content.h"
 #include "GameView.h"
 
 #include "game/World.h"
@@ -6,21 +7,27 @@
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 using namespace ktd;
 
 namespace {
 
-std::string buildTitle(const World& world, bool paused) {
+std::string buildTitle(const World& world, content::TowerDefId selected, bool paused,
+                       bool contentBroken) {
     std::string title = "kaadanTD  |  Wave " + std::to_string(world.waveNumber()) + "   Gold " +
                         std::to_string(world.gold()) + "   Lives " + std::to_string(world.lives()) +
                         "   Killed " + std::to_string(world.enemiesKilled());
-    if (world.state() == GameState::Defeat) {
+    title += "   Building: " + world.content().tower(selected).name + " (" +
+             std::to_string(world.content().tower(selected).cost) + "g)";
+    if (contentBroken) {
+        title += "   [CONTENT ERROR - see console, F5 to retry]";
+    } else if (world.state() == GameState::Defeat) {
         title += "   [DEFEAT - press R to restart]";
     } else if (paused) {
         title += "   [PAUSED]";
     } else {
-        title += "   [click to build, space to pause, R to restart]";
+        title += "   [click to build, 1-9 tower, F5 reload, space pause, R restart]";
     }
     return title;
 }
@@ -50,10 +57,30 @@ int main(int /*argc*/, char** /*argv*/) {
         return 1;
     }
 
-    World world;
+    // Balance is data now, so the first thing the game does is read it. There
+    // is no fallback set of numbers compiled in: content that does not load is
+    // a broken build, and saying so at startup beats discovering it at wave
+    // forty.
+    app::ContentSource contentSource(KTD_CONTENT_DIR);
+    content::ContentDb content;
+    if (!contentSource.reload(*platform, content)) {
+        for (const std::string& problem : contentSource.errors()) {
+            std::fprintf(stderr, "content: %s\n", problem.c_str());
+        }
+        return 1;
+    }
+
+    World world(content);
     GameView view;
     InputState input;
     bool paused = false;
+    content::TowerDefId selectedTower = 0;
+    bool contentBroken = false;
+
+    // Every placement the player has made this run, with the tick it landed on.
+    // This is what a hot reload replays; Phase 7's replay files are the same
+    // log written to disk.
+    std::vector<app::Command> commands;
 
     // Fixed-timestep simulation decoupled from the render rate.
     //
@@ -89,8 +116,44 @@ int main(int /*argc*/, char** /*argv*/) {
             paused = !paused;
         }
         if (input.restartPressed) {
-            world = World();
+            world = World(content);
+            commands.clear();
             paused = false;
+        }
+        if (input.towerSelection >= 0 &&
+            static_cast<std::size_t>(input.towerSelection) < content.towers().size()) {
+            selectedTower = static_cast<content::TowerDefId>(input.towerSelection);
+        }
+
+        // --- hot reload ----------------------------------------------------
+        //
+        // Re-read the files into a fresh database and, if it is good, rebuild
+        // the world and replay the whole run against the new numbers at max
+        // speed. The point is not "new balance from here on" -- that would
+        // leave a board built under the old numbers and answer nothing. It is
+        // "show me this exact run, rebalanced".
+        //
+        // On a parse error the old database is kept and the game keeps running,
+        // because half the times this key is pressed the file has a typo in it.
+        if (input.reloadPressed) {
+            content::ContentDb reloaded;
+            if (contentSource.reload(*platform, reloaded)) {
+                const std::uint64_t through = world.tick();
+                content = std::move(reloaded);
+                if (selectedTower >= content.towers().size()) {
+                    selectedTower = 0;
+                }
+                world = World(content);
+                app::resimulate(world, commands, through);
+                contentBroken = false;
+                std::printf("content reloaded; resimulated %llu ticks\n",
+                            static_cast<unsigned long long>(through));
+            } else {
+                contentBroken = true;
+                for (const std::string& problem : contentSource.errors()) {
+                    std::fprintf(stderr, "content: %s\n", problem.c_str());
+                }
+            }
         }
 
         view.updateCamera(world, scaledPixels(input.windowWidth, input.pixelScale),
@@ -98,7 +161,12 @@ int main(int /*argc*/, char** /*argv*/) {
         const Cell hovered = view.pointerToCell(input.pointer, input);
 
         if (input.pointerPressed && !paused && world.state() == GameState::Playing) {
-            world.placeTower(hovered);
+            // Recorded only when it actually happened, and stamped with the
+            // tick the world is about to step from -- which is what makes the
+            // log replay to the same run.
+            if (world.placeTower(hovered, selectedTower) == PlacementResult::Placed) {
+                commands.push_back(app::Command{world.tick(), hovered, selectedTower});
+            }
         }
 
         while (accumulator >= kStepSeconds) {
@@ -113,13 +181,13 @@ int main(int /*argc*/, char** /*argv*/) {
 
         renderer->beginFrame(pixelWidth, pixelHeight, backgroundColor());
         view.apply(*renderer);
-        view.draw(*renderer, world, hovered, paused);
+        view.draw(*renderer, world, hovered, selectedTower, paused);
         renderer->endFrame();
         platform->present();
 
         // Setting the title every frame causes visible flicker on some window
         // managers, so only push it when the text actually changes.
-        std::string title = buildTitle(world, paused);
+        std::string title = buildTitle(world, selectedTower, paused, contentBroken);
         if (title != lastTitle) {
             platform->setWindowTitle(title);
             lastTitle = std::move(title);

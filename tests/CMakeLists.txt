@@ -1,6 +1,7 @@
 # Tests link ONLY ktd_game. If a test ever needs SDL or OpenGL to run, that is
 # a signal the simulation has grown a platform dependency it should not have.
 set(KTD_TEST_SOURCES
+    test_content.cpp
     test_grid.cpp
     test_hash.cpp
     test_math.cpp
@@ -43,6 +44,13 @@ ktd_set_warnings(ktd_hashdump)
 # can find it without depending on the working directory ctest was invoked from.
 target_compile_definitions(ktd_tests
     PRIVATE KTD_REFERENCE_TRACE="${CMAKE_CURRENT_SOURCE_DIR}/data/reference_trace.tsv")
+
+# The shipped content directory. Tests load the real balance files rather than a
+# fixture, so `ctest` also proves the content parses and describes a routable
+# level -- a typo in a .ktd file fails the build instead of the game.
+foreach(TARGET ktd_tests ktd_hashdump)
+    target_compile_definitions(${TARGET} PRIVATE KTD_CONTENT_DIR="${CMAKE_SOURCE_DIR}/content")
+endforeach()
 
 # Portability and determinism guards over game/.
 foreach(RULE platform determinism stdlib)

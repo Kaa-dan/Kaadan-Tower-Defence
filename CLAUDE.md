@@ -16,6 +16,7 @@ strategy, and `ctest` enforces it. See `docs/ARCHITECTURE.md` for the reasoning.
 | `engine/` | `Platform` + `Renderer` interfaces and their SDL3/OpenGL backends. |
 | `app/` | Wires the two together. Fixed-timestep loop and the game's drawing. |
 | `tests/` | Headless. Links only `game/`, no window required. |
+| `content/` | Balance and level data (`*.ktd`). Edit these, not `Config.h`. F5 reloads them. |
 
 ## Build and test
 
@@ -26,7 +27,10 @@ cmake --preset dev  && cmake --build --preset dev                           # fu
 ```
 
 Use the `core` preset by default — it skips SDL entirely (0.7s to configure vs 94s).
-`asan` preset for sanitizers. All 24 tests must stay green.
+`asan` preset for sanitizers. All 78 tests must stay green.
+
+CTest entries are scraped at **configure** time, so re-run `cmake --preset core` after adding
+a `TEST()` — otherwise the suite reports green without ever running the new one.
 
 Formatting is CI-enforced. The version is pinned deliberately — clang-format's output shifts
 between major releases, so it must move in lockstep with `.github/workflows/ci.yml`:

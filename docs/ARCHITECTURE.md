@@ -67,13 +67,29 @@ lookup, and a stale handle that fails safely instead of dangling. Not a general 
 
 ## Content
 
-Balance values are currently `constexpr` in `game/include/game/Config.h`, baked into struct
-default initializers — which is precisely why only one tower type can exist today.
+Balance lives in `content/*.ktd` and is read through `content::ContentDb`. `Config.h` retains
+only the tick rate — everything a designer would want to change is data.
 
-Phase 3 moves content to data files parsed into plain C++ structs. `game/` owns the schemas
-and the parser; the platform layer reads the bytes, because **parsing a string is not file
-I/O** and the purity rule must hold. See
-[ADR 0005](decisions/0005-handrolled-data-format.md).
+`game/` owns the schemas and the parser; the platform layer reads the bytes, because **parsing
+a string is not file I/O** and the purity rule must hold. The format is a documented TOML
+subset with a hand-written deterministic float parser
+([ADR 0005](decisions/0005-handrolled-data-format.md)); there is no scripting runtime
+([ADR 0003](decisions/0003-no-embedded-lua.md)).
+
+Two properties make the rest work. Loading is **two-pass** — ids registered and assigned dense
+`uint16` indices first, cross-references resolved second — so file order never matters and no
+string survives into the simulation. And **entities store a def id rather than baked stats**,
+so a hot reload reaches towers already standing on the board rather than only the ones built
+after it.
+
+Because balance is data, it is also part of what makes a run a run: the state hash covers a
+fingerprint of the whole database ([ADR 0010](decisions/0010-content-fingerprint-in-the-hash.md)).
+
+Hot reload (F5) lives entirely in `app/`. It re-reads the files into a *fresh* database, keeps
+the old one if parsing fails, and on success replays the run's recorded command log from tick 0
+against the new numbers. The point is "show me this exact run, rebalanced" rather than "new
+numbers from here on", and the command log it replays is the same structure Phase 7 writes to
+disk as a replay file.
 
 ## Rendering
 

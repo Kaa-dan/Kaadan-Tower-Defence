@@ -13,14 +13,14 @@ No scripting: [ADR 0003](../decisions/0003-no-embedded-lua.md).
 
 ## Acceptance criteria
 
-- [ ] `parse_rejects_malformed_input_with_line_numbers` — errors name file, line, and column,
+- [x] `parse_rejects_malformed_input_with_line_numbers` — errors name file, line, and column,
       and are **collected** rather than thrown at the first one.
-- [ ] `parse_float_is_deterministic` — known decimal strings produce exact expected bit
+- [x] `parse_float_is_deterministic` — known decimal strings produce exact expected bit
       patterns. This is the criterion that justifies hand-rolling the parser.
-- [ ] `content_unresolved_reference_is_an_error` — `projectile = "typo"` fails at load, loudly.
-- [ ] `world_runs_from_a_database_built_in_code` — proves `game/` needs no filesystem.
-- [ ] `two_tower_types_behave_differently` — the thing that is impossible today.
-- [ ] `purity_stdlib` still passes — no file I/O leaked into `game/`.
+- [x] `content_unresolved_reference_is_an_error` — `projectile = "typo"` fails at load, loudly.
+- [x] `world_runs_from_a_database_built_in_code` — proves `game/` needs no filesystem.
+- [x] `two_tower_types_behave_differently` — the thing that is impossible today.
+- [x] `purity_stdlib` still passes — no file I/O leaked into `game/`.
 
 ## Work
 
@@ -54,6 +54,19 @@ That last part is the payoff and it is why scripting is not needed: hot reload d
 "new numbers from here on", it means *"show me this exact run, rebalanced."* Thirty minutes of
 gameplay resimulates in well under a second. For a solo dev tuning 300 skill nodes this is the
 highest-leverage tool in the whole roadmap.
+
+## What shipped, and what did not
+
+All six criteria pass. Beyond them: unknown keys are errors, the loader validates that a route
+from spawn to goal exists, waves can be authored explicitly and fall through to an endless
+rule, and the content fingerprint is part of the state hash
+([ADR 0010](../decisions/0010-content-fingerprint-in-the-hash.md)).
+
+`ItemDef` and `SkillNodeDef` from the layering section below were deliberately **not** written:
+nothing consumes them, ADR 0003's behaviour verbs are Phase 4's work, and an empty struct
+written now would fossilise a guess. The same applies to the damage types, resistances, status
+effects and targeting policies listed under Content surface — those are the eventual surface,
+not this phase's.
 
 ## Content surface
 

@@ -1,3 +1,4 @@
+#include "Content.h"
 #include "TestFramework.h"
 
 #include "game/World.h"
@@ -16,12 +17,27 @@ void advance(World& world, float seconds) {
     }
 }
 
+// The shipped content, which is what the game actually ships with -- so these
+// tests fail if a balance file stops parsing, not only if the code breaks.
+const content::ContentDb& shipped() { return testing::shippedContent(); }
+
+const content::LevelDef& level() { return shipped().level(); }
+
+// The first tower type, which is the one placeTower defaults to.
+const content::TowerDef& basicTower() { return shipped().tower(0); }
+
+void advanceTicks(World& world, std::uint32_t ticks) {
+    for (std::uint32_t i = 0; i < ticks; ++i) {
+        world.step();
+    }
+}
+
 }  // namespace
 
 TEST(world_starts_in_a_playable_state) {
-    World world;
-    CHECK_EQ(world.gold(), config::kStartingGold);
-    CHECK_EQ(world.lives(), config::kStartingLives);
+    World world(shipped());
+    CHECK_EQ(world.gold(), level().startingGold);
+    CHECK_EQ(world.lives(), level().startingLives);
     CHECK_EQ(world.waveNumber(), 0);
     CHECK(world.state() == GameState::Playing);
     CHECK(world.enemies().empty());
@@ -32,24 +48,24 @@ TEST(world_starts_in_a_playable_state) {
 }
 
 TEST(the_first_wave_starts_and_spawns_enemies) {
-    World world;
-    advance(world, config::kTimeBetweenWaves + 2.0f);
+    World world(shipped());
+    advanceTicks(world, shipped().waves().gapTicks + config::ticksFromSeconds(2.0f));
 
     CHECK_EQ(world.waveNumber(), 1);
     CHECK(!world.enemies().empty());
 }
 
 TEST(undefended_enemies_reach_the_goal_and_cost_lives) {
-    World world;
+    World world(shipped());
     advance(world, 60.0f);
 
     CHECK(world.enemiesLeaked() > 0);
-    CHECK(world.lives() < config::kStartingLives);
+    CHECK(world.lives() < level().startingLives);
     CHECK_EQ(world.enemiesKilled(), 0);  // nothing was built
 }
 
 TEST(enough_lost_lives_ends_the_run) {
-    World world;
+    World world(shipped());
     advance(world, 400.0f);
 
     CHECK_EQ(world.lives(), 0);
@@ -62,11 +78,11 @@ TEST(enough_lost_lives_ends_the_run) {
 }
 
 TEST(placing_a_tower_costs_gold_and_occupies_the_tile) {
-    World world;
+    World world(shipped());
     const Cell cell{2, world.grid().height() / 2 - 1};
 
     CHECK(world.placeTower(cell) == PlacementResult::Placed);
-    CHECK_EQ(world.gold(), config::kStartingGold - config::kTowerCost);
+    CHECK_EQ(world.gold(), level().startingGold - basicTower().cost);
     CHECK_EQ(static_cast<int>(world.towers().size()), 1);
     CHECK(world.grid().at(cell) == Tile::Tower);
 
@@ -75,8 +91,8 @@ TEST(placing_a_tower_costs_gold_and_occupies_the_tile) {
 }
 
 TEST(placement_fails_without_enough_gold) {
-    World world;
-    const int affordable = config::kStartingGold / config::kTowerCost;
+    World world(shipped());
+    const int affordable = level().startingGold / basicTower().cost;
 
     int placed = 0;
     for (int y = 0; y < world.grid().height() && placed < affordable; ++y) {
@@ -85,12 +101,12 @@ TEST(placement_fails_without_enough_gold) {
         }
     }
     CHECK_EQ(placed, affordable);
-    CHECK(world.gold() < config::kTowerCost);
+    CHECK(world.gold() < basicTower().cost);
     CHECK(world.placeTower({4, 1}) == PlacementResult::NotEnoughGold);
 }
 
 TEST(towers_kill_enemies_and_pay_out_gold) {
-    World world;
+    World world(shipped());
 
     // Build a firing line along the corridor the enemies must use.
     const int lane = world.grid().height() / 2;
@@ -109,14 +125,14 @@ TEST(towers_kill_enemies_and_pay_out_gold) {
     // The property that actually matters: a defended lane leaks less than an
     // undefended one over the same span. Asserting on projectiles in flight
     // would only test where the loop happened to stop.
-    World undefended;
+    World undefended(shipped());
     advance(undefended, 45.0f);
     CHECK(world.enemiesLeaked() < undefended.enemiesLeaked());
     CHECK(world.lives() > undefended.lives());
 }
 
 TEST(the_route_stays_open_no_matter_what_the_player_builds) {
-    World world;
+    World world(shipped());
 
     // Try to build on every tile on the board; the placement rule must never
     // let the player seal the route off.
@@ -138,10 +154,10 @@ TEST(identical_seeds_produce_identical_runs) {
     // reproducibility. It compares two worlds inside ONE process, on ONE
     // machine, built by ONE compiler. Every hazard this phase exists to close
     // is invisible to it by construction.
-    World a(config::kGridWidth, config::kGridHeight, 4242);
-    World b(config::kGridWidth, config::kGridHeight, 4242);
+    World a(shipped(), 4242);
+    World b(shipped(), 4242);
 
-    const int lane = config::kGridHeight / 2;
+    const int lane = level().height / 2;
     for (int x = 3; x <= 5; ++x) {
         a.placeTower({x, lane - 1});
         b.placeTower({x, lane - 1});
@@ -156,16 +172,16 @@ TEST(identical_seeds_produce_identical_runs) {
 }
 
 TEST(different_seeds_still_produce_a_valid_run) {
-    World world(config::kGridWidth, config::kGridHeight, 777);
+    World world(shipped(), 777);
     advance(world, 30.0f);
     CHECK(world.waveNumber() > 0);
-    CHECK(world.lives() <= config::kStartingLives);
+    CHECK(world.lives() <= level().startingLives);
 }
 
 // The tick is the simulation's clock, so it must advance exactly once per
 // step() and never depend on anything the caller supplies.
 TEST(world_tick_advances_once_per_step) {
-    World world;
+    World world(shipped());
     CHECK_EQ(world.tick(), std::uint64_t(0));
     for (int i = 1; i <= 100; ++i) {
         world.step();
@@ -182,13 +198,13 @@ TEST(wave_timing_is_exact_in_ticks) {
     // the only thing running. Bounded rather than open-ended: once lives run
     // out the world stops stepping, and a while-loop waiting on a wave that
     // will never start would hang instead of failing.
-    World world;
+    World world(shipped());
     const int waveBefore = world.waveNumber();
     std::uint64_t ticksWaited = 0;
-    const std::uint64_t limit = config::kTimeBetweenWavesTicks * 2;
+    const std::uint64_t limit = shipped().waves().gapTicks * 2;
     while (world.waveNumber() == waveBefore && ticksWaited < limit) {
         world.step();
         ++ticksWaited;
     }
-    CHECK_EQ(ticksWaited, std::uint64_t(config::kTimeBetweenWavesTicks));
+    CHECK_EQ(ticksWaited, std::uint64_t(shipped().waves().gapTicks));
 }
