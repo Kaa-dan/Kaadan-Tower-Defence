@@ -1,0 +1,20 @@
+# Wave schedule.
+#
+# Authored waves run in order, exactly as written, with no difficulty scaling --
+# what you type is what arrives. When they run out the endless rule takes over
+# and compounds from there, because a tower defence that stops at wave twelve is
+# a demo.
+#
+# There are no authored waves today, so the game is pure endless and the
+# progression is bit-for-bit the one Config.h used to hardcode. Adding a
+# [[wave]] block here is how hand-designed opening waves get written.
+
+[waves]
+spawn_interval_ticks = 45
+gap_ticks = 360
+
+endless_enemy = "grunt"
+endless_first_count = 6
+endless_added_per_wave = 2
+health_growth = 1.18
+speed_growth = 1.02

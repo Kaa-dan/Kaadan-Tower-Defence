@@ -11,12 +11,20 @@
 // trace is a constant. Placing towers keeps the projectile and damage paths
 // live for the whole run.
 
+#include "Content.h"
+
 #include "game/World.h"
 
 #include <array>
 #include <cstdint>
 
 namespace scenario {
+
+// The scripted run is played against the shipped content, so the golden hash
+// covers the real balance numbers rather than a fixture that could drift from
+// them. A content edit therefore moves the hash -- deliberately, because it is
+// a different run.
+inline const ktd::content::ContentDb& content() { return testing::shippedContent(); }
 
 inline constexpr std::uint64_t kSeed = 20260820;
 inline constexpr std::uint64_t kTicks = 3000;

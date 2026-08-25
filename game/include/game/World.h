@@ -9,6 +9,7 @@
 #include "game/SpatialIndex.h"
 #include "game/Targeting.h"
 #include "game/Types.h"
+#include "game/content/Database.h"
 
 #include <algorithm>
 #include <vector>
@@ -34,19 +35,32 @@ using EnemyId = Handle<EnemyTag>;
 using TowerId = Handle<TowerTag>;
 using ProjectileId = Handle<ProjectileTag>;
 
+// Entities carry a def id and read their stats from the database, rather than
+// baking the numbers in when they are created.
+//
+// The difference is invisible until you press F5. Baked stats mean a balance
+// change only affects entities built afterwards, so a hot reload of a run in
+// progress produces a world half-governed by the old numbers. A def id means
+// there is exactly one copy of every number and it lives in the database.
+//
+// Per-entity state -- health, cooldown, position -- still lives on the entity,
+// because that is state rather than balance.
+
 struct Enemy {
     EntityId id = kInvalidId;
     Vec2 position{};
     float health = 0.0f;
+    // Kept alongside the def because the wave multiplies it: two grunts from
+    // different waves share a type and not a maximum.
     float maxHealth = 0.0f;
     float speed = 0.0f;
+    content::EnemyDefId type = content::kNoDef;
 };
 
 struct Tower {
     EntityId id = kInvalidId;
     Cell cell{};
-    float range = config::kTowerRange;
-    float damage = config::kTowerDamage;
+    content::TowerDefId type = content::kNoDef;
     std::uint32_t cooldown = 0;  // ticks until it may fire again
     Vec2 aim{1.0f, 0.0f};        // facing, for rendering only
 };
@@ -71,6 +85,10 @@ struct Projectile {
     // change, so they cannot drift apart.
     EnemyId target{};
     EntityId targetId = kInvalidId;
+    content::ProjectileDefId type = content::kNoDef;
+    // Carried on the shot rather than read from the tower, because the tower
+    // may be sold before the shot lands, and because a damage pipeline will
+    // want to modify it in flight.
     float damage = 0.0f;
     std::uint32_t age = 0;  // ticks since it was fired
 };
@@ -85,6 +103,7 @@ enum class PlacementResult {
     BlockedTile,    // wall, existing tower, spawn or goal
     WouldSealPath,  // legal tile, but it would wall the route off entirely
     NotEnoughGold,
+    UnknownTowerType,  // the content has no tower with that index
 };
 
 namespace detail {
@@ -122,8 +141,13 @@ std::vector<const T*> byId(Span<const T> items) {
 // runs identically inside the renderer-less test suite and on every platform.
 class World {
 public:
-    World(int width = config::kGridWidth, int height = config::kGridHeight,
-          std::uint64_t seed = 12345);
+    // The database must outlive the world, and is not copied: a tower reads its
+    // range through this pointer on the tick it fires.
+    //
+    // There is no default. A World with no content has no level to stand on and
+    // no tower to build, and the constructor that used to supply a grid size
+    // and inherit balance from a header is exactly what this phase removed.
+    explicit World(const content::ContentDb& content, std::uint64_t seed = 12345);
 
     // Advances the simulation by exactly one tick.
     //
@@ -135,8 +159,10 @@ public:
     // math inside a tick; it is not a knob.
     void step();
 
-    PlacementResult placeTower(Cell cell);
-    bool canAfford() const { return gold_ >= config::kTowerCost; }
+    PlacementResult placeTower(Cell cell, content::TowerDefId type = 0);
+    bool canAfford(content::TowerDefId type = 0) const;
+
+    const content::ContentDb& content() const { return *content_; }
 
     // --- observation (rendering, UI, tests) ---
     const Grid& grid() const { return grid_; }
@@ -183,6 +209,15 @@ public:
     // changes every hash, which is what simVersion will exist to notice.
     template <typename Sink>
     void serialize(Sink& out) const {
+        // Which ruleset this run was played under, first.
+        //
+        // Balance is now data, so two runs with the same seed and the same
+        // commands are only the same run if they were played against the same
+        // numbers. Without this the hash would call a rebalanced replay
+        // identical right up to the tick the change first mattered. Hot reload
+        // does exactly that on purpose; a stale save file does it by accident.
+        out.u64(contentFingerprint_);
+
         out.u64(tick_);
         out.i32(gold_);
         out.i32(lives_);
@@ -206,6 +241,9 @@ public:
 
         // Wave director. Invisible to the player and decisive for the run.
         out.i32(enemiesLeftToSpawn_);
+        // How far into this wave's composition the spawner has got. Decisive
+        // once a wave mixes enemy types, and invisible in a wave that does not.
+        out.i32(spawnedInWave_);
         out.u32(spawnTimer_);
         out.u32(waveTimer_);
         out.f32(waveHealthScale_);
@@ -220,6 +258,7 @@ public:
             out.f32(enemy.health);
             out.f32(enemy.maxHealth);
             out.f32(enemy.speed);
+            out.u32(enemy.type);
         }
 
         out.u32(static_cast<std::uint32_t>(towers_.size()));
@@ -228,8 +267,10 @@ public:
             out.u32(tower.id);
             out.i32(tower.cell.x);
             out.i32(tower.cell.y);
-            out.f32(tower.range);
-            out.f32(tower.damage);
+            // The type, where range and damage used to be written. Those are
+            // no longer state -- they live in the database, which the
+            // fingerprint above covers.
+            out.u32(tower.type);
             out.u32(tower.cooldown);
             // aim is rendering-only, but it is derived from simulation state
             // and costs two words to cover. A field left out of the hash is a
@@ -247,6 +288,7 @@ public:
             out.f32(shot.velocity.y);
             out.u32(shot.id);
             out.u32(shot.targetId);
+            out.u32(shot.type);
             out.f32(shot.damage);
             out.u32(shot.age);
         }
@@ -294,6 +336,17 @@ private:
     void startNextWave();
     EnemyId findTarget(const Tower& tower) const;
 
+    // Which enemy type the nth spawn of the current wave is. Authored waves
+    // walk their composition; the endless progression has one group.
+    content::EnemyDefId spawnTypeAt(int indexInWave) const;
+    int enemiesInWave(int wave) const;
+
+    const content::ContentDb* content_;
+    // Cached rather than recomputed, because checksum() is called every tick by
+    // the determinism trace and the database does not change under a running
+    // world -- a hot reload builds a new one.
+    std::uint64_t contentFingerprint_ = 0;
+
     Grid grid_;
     FlowField flow_;
     Cell spawn_{};
@@ -331,16 +384,17 @@ private:
     // convention.
     std::uint64_t tick_ = 0;
 
-    int gold_ = config::kStartingGold;
-    int lives_ = config::kStartingLives;
+    int gold_ = 0;
+    int lives_ = 0;
     int wave_ = 0;
     // Compounding difficulty for the wave in progress, recomputed only when a
     // wave starts. See startNextWave().
     float waveHealthScale_ = 1.0f;
     float waveSpeedScale_ = 1.0f;
     int enemiesLeftToSpawn_ = 0;
+    int spawnedInWave_ = 0;
     std::uint32_t spawnTimer_ = 0;
-    std::uint32_t waveTimer_ = config::kTimeBetweenWavesTicks;
+    std::uint32_t waveTimer_ = 0;
     int leaked_ = 0;
     int killed_ = 0;
     GameState state_ = GameState::Playing;

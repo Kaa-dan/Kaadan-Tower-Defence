@@ -1,0 +1,37 @@
+# The starting level.
+#
+# Geometry lives here rather than in the World constructor, which is what makes
+# a second level a file rather than a code change. One tile per character:
+# '.' is open and buildable, '#' is permanent wall.
+#
+# Row 0 is y = 0. The corridor down the middle is the route from spawn to goal;
+# the loader refuses a level where no route exists at all, so a typo that walls
+# the lane off is caught at load rather than by enemies standing still.
+
+[level.field]
+width = 24
+height = 16
+spawn = [0, 8]
+goal = [23, 8]
+
+starting_gold = 120
+starting_lives = 20
+
+rows = [
+    "........................",
+    "........................",
+    "........................",
+    "........#.......#.......",
+    "........#.......#.......",
+    "........#.......#.......",
+    "........#.......#.......",
+    "........#.......#.......",
+    "........................",
+    "........#.......#.......",
+    "........#.......#.......",
+    "........#.......#.......",
+    "........#.......#.......",
+    "........................",
+    "........................",
+    "........................",
+]

@@ -94,7 +94,19 @@ jobs:
           # rather than left to Git Bash's implicit resolution.
           BIN="build/${{ matrix.preset }}/tests/ktd_hashdump"
           if [ -f "$BIN.exe" ]; then BIN="$BIN.exe"; fi
+
+          # The status is captured rather than left to `set -e`, because a bare
+          # crash here reports "exit code 139" and nothing else -- not how far
+          # the run got, which is the one fact that says whether it died loading
+          # content or on the last tick.
+          set +e
           "$BIN" > trace.tsv
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::error::ktd_hashdump exited $status after $(wc -l < trace.tsv) of 3000 lines"
+            exit 1
+          fi
           # A truncated trace would still diff clean against another truncated
           # trace, so assert the length rather than trusting it.
           test "$(wc -l < trace.tsv)" -eq 3000

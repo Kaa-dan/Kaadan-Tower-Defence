@@ -1,0 +1,22 @@
+# Enemy archetypes.
+#
+# Health and speed here are the wave-one values; the wave rules compound them
+# from wave to wave. Radius feeds the projectile hit test, and bounty is the
+# gold a kill pays.
+
+[enemy.grunt]
+name = "Grunt"
+health = 24.0
+speed = 1.6
+radius = 0.22
+bounty = 8
+
+# Faster and frailer. Nothing spawns these yet -- the endless progression sends
+# grunts -- but a wave table can, and mixed speeds are what make two enemies
+# ever share a path distance and exercise the targeting tie-break.
+[enemy.runner]
+name = "Runner"
+health = 14.0
+speed = 2.6
+radius = 0.18
+bounty = 6

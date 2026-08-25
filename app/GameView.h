@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game/World.h"
+#include "game/content/Database.h"
 #include "platform/Platform.h"
 #include "renderer/Renderer.h"
 
@@ -19,7 +20,11 @@ public:
     // Converts a pointer position in window points to a tile coordinate.
     Cell pointerToCell(Vec2 pointer, const InputState& input) const;
 
-    void draw(Renderer& renderer, const World& world, Cell hovered, bool paused) const;
+    // `selected` is the tower type the player is about to build: the preview
+    // shows that type's range and affordability, so the two data-driven types
+    // are distinguishable before anything is placed.
+    void draw(Renderer& renderer, const World& world, Cell hovered, content::TowerDefId selected,
+              bool paused) const;
 
 private:
     float left_ = 0.0f;

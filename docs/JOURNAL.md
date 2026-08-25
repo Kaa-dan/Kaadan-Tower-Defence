@@ -8,6 +8,72 @@ will matter in six months belongs in an ADR, not here.
 
 ---
 
+## 2026-08-24 — Phase 3: balance is data, and F5 replays the run against it
+
+`Config.h` is down to three declarations: the tick rate, `kFixedDt`, and `ticksFromSeconds`.
+Everything else — tower range and damage, enemy health and growth, wave sizes, the economy,
+the level's wall layout — lives in `content/*.ktd` and is read through `content::ContentDb`.
+Two tower types ship, which was the thing that was structurally impossible a day ago.
+
+**What went in.** A hand-written TOML subset (`game/content/Parser.h`), the database and its
+two-pass loader (`game/content/Database.h`), the level and wave schemas, `Platform::readFile`
+in the SDL backend, and F5 hot reload in `app/`. 78 tests, all green, and green under
+ASan+UBSan too.
+
+**The float parser earned its keep immediately.** `parse_float_is_deterministic` pins eighteen
+decimal strings to exact `binary32` bit patterns *and* cross-checks each against the C++
+literal of the same digits, so the table cannot drift from the language. The conversion is one
+`uint64` mantissa, one IEEE multiply or divide by an exactly-representable power of ten, one
+narrowing — and it **refuses** anything outside that envelope (more than 15 significant digits,
+exponent past ±22) rather than rounding. A silently-rounded balance number was the failure ADR
+0005 existed to prevent, and refusing is the only way to actually prevent it.
+
+**Unknown keys are errors.** Not a design flourish: `dammage = 40` loading fine and leaving the
+damage at its default is the single most common way a data-driven game ships wrong numbers, and
+it is invisible precisely because nothing fails. So `Fields::rejectUnknownKeys()` runs on every
+table and a typo costs a build instead of a playtest.
+
+**The loader validates routability.** It builds a throwaway `Grid` and `FlowField` and refuses a
+level with no route from spawn to goal. A missing `.` in a map row otherwise loads perfectly and
+presents enemies standing still at the entrance, which is a mystifying way to discover a typo.
+
+**The hash now covers the content** ([ADR 0010](decisions/0010-content-fingerprint-in-the-hash.md)).
+This is the phase's one non-obvious call. Balance left the binary but did not stop determining
+the run, so under ADR 0008's rule it belongs in the serializer. Display names are excluded —
+localisation must not invalidate replays.
+
+**Two surprises, both in tests rather than in the simulation.**
+
+`-Wfloat-equal` is on, so the one place that genuinely needs exact float comparison — the whole
+point of the deterministic parser — cannot use `==`. Comparing `std::bit_cast<uint32_t>` instead
+is more honest anyway: it says "these bits" rather than "these values".
+
+And `ctest` silently ran a stale test list. New `TEST()`s in an *existing* file need no CMake
+edit, but the scrape only reruns when CMake reconfigures — so `cmake --build` alone reported
+73/73 passing while five new tests had never run. The suite was green and incomplete at the same
+time, which is worse than red. Reconfigure after adding tests.
+
+**Re-baselined the golden hash to `0x51D74AAE506DE6CA`** and regenerated `reference_trace.tsv`.
+Every replay recorded before this is invalid. The move is intended and has two causes: towers
+serialize a type id where range and damage used to be, and the content fingerprint is now the
+first field in the stream. The scripted scenario itself is unchanged and still builds only
+tower type 0, so the underlying run is the same run.
+
+**Deliberately left out.** `ItemDef` and `SkillNodeDef` — the phase spec lists them, but there is
+nothing to put in them yet and no consumer; ADR 0003's behaviour verbs are Phase 4's work, and an
+empty struct written today would fossilise a guess. Damage types, resistances, status effects and
+targeting policies are the same argument. The wave schema, the tower/enemy/projectile schemas and
+the level schema are complete for everything the simulation currently does.
+
+**Not playtested.** The F5 path builds and its load-order, error-recovery and replay logic are
+covered, but nobody has actually pressed the key and watched a run rebalance. The tuning of the
+second tower type ("Cannon") is a placeholder, not a balance decision.
+
+**Next:** Phase 4 — systems split, damage pipeline, event queue. It now has data to be written
+against rather than constants.
+
+---
+
 ## 2026-08-22 — CI ran for the first time, and one ASan bug in the new tests
 
 Phase 2 opened as PR #4, which is what finally triggered CI. Two results.

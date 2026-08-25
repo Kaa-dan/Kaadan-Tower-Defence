@@ -9,6 +9,8 @@
 # platform header sneaks in here, so this stays true under pressure.
 
 add_library(ktd_game STATIC
+    src/content/Database.cpp
+    src/content/Parser.cpp
     src/Grid.cpp
     src/Math.cpp
     src/Path.cpp

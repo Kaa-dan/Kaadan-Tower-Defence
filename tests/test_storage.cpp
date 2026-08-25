@@ -1,3 +1,4 @@
+#include "Content.h"
 #include "TestFramework.h"
 
 #include "game/Pool.h"
@@ -73,6 +74,13 @@ void operator delete[](void* p, const std::nothrow_t&) noexcept { std::free(p); 
 
 namespace {
 
+// A synthetic board for the targeting unit tests below. Sized like the shipped
+// level, but deliberately independent of it: these exercise the targeting rule
+// itself, and editing a level file should not be able to break them.
+constexpr int kBoardWidth = 24;
+constexpr int kBoardHeight = 16;
+constexpr float kTestRange = 3.2f;
+
 // The targeting rule, written out independently of the implementation: of every
 // enemy within range whose tile can reach the goal, the one closest to the goal,
 // ties broken on the lower entity id. If this and World::findTarget ever
@@ -80,7 +88,8 @@ namespace {
 // the test does not inherit the implementation's mistakes.
 const Enemy* bruteForceTarget(const World& world, const Tower& tower, int& tiedCount) {
     const Vec2 origin = Grid::centerOf(tower.cell);
-    const float rangeSq = tower.range * tower.range;
+    const float range = world.content().tower(tower.type).range;
+    const float rangeSq = range * range;
 
     const Enemy* best = nullptr;
     int bestDistance = std::numeric_limits<int>::max();
@@ -149,8 +158,8 @@ bool storedInIdOrder(Span<const Enemy> enemies) {
 // So the test builds the tie itself and then permutes storage underneath it. If
 // the rule reads position, the answer moves; if it reads identity, it cannot.
 TEST(targeting_ties_break_on_handle_not_position) {
-    Grid grid(config::kGridWidth, config::kGridHeight);
-    const Cell goal{config::kGridWidth - 1, config::kGridHeight / 2};
+    Grid grid(kBoardWidth, kBoardHeight);
+    const Cell goal{kBoardWidth - 1, kBoardHeight / 2};
     FlowField flow;
     flow.build(grid, goal);
 
@@ -159,8 +168,8 @@ TEST(targeting_ties_break_on_handle_not_position) {
     // id is neither first nor last in the initial array -- otherwise "picks the
     // lowest id" and "picks the first" or "picks the last" would be
     // indistinguishable, and the test would pass for the wrong reason.
-    const Cell towerCell{4, config::kGridHeight / 2};
-    const Cell occupied{6, config::kGridHeight / 2};
+    const Cell towerCell{4, kBoardHeight / 2};
+    const Cell occupied{6, kBoardHeight / 2};
     const Vec2 center = Grid::centerOf(occupied);
 
     std::vector<Enemy> enemies(3);
@@ -185,8 +194,8 @@ TEST(targeting_ties_break_on_handle_not_position) {
         std::vector<Enemy> permuted{enemies[order[0]], enemies[order[1]], enemies[order[2]]};
         index.rebuild(grid.width(), grid.height(), Span<const Enemy>(permuted));
 
-        const std::uint32_t slot = selectTarget<Enemy>(Span<const Enemy>(permuted), index, flow,
-                                                       towerCell, config::kTowerRange);
+        const std::uint32_t slot =
+            selectTarget<Enemy>(Span<const Enemy>(permuted), index, flow, towerCell, kTestRange);
         CHECK(slot != kNoTarget);
         CHECK_EQ(permuted[slot].id, std::uint32_t(17));
     }
@@ -197,13 +206,13 @@ TEST(targeting_ties_break_on_handle_not_position) {
     std::vector<Enemy> withLeader = enemies;
     Enemy leader;
     leader.id = 999;
-    leader.position = Grid::centerOf({7, config::kGridHeight / 2});
+    leader.position = Grid::centerOf({7, kBoardHeight / 2});
     withLeader.push_back(leader);
     CHECK(flow.distance(Grid::cellOf(leader.position)) < flow.distance(occupied));
 
     index.rebuild(grid.width(), grid.height(), Span<const Enemy>(withLeader));
-    const std::uint32_t slot = selectTarget<Enemy>(Span<const Enemy>(withLeader), index, flow,
-                                                   towerCell, config::kTowerRange);
+    const std::uint32_t slot =
+        selectTarget<Enemy>(Span<const Enemy>(withLeader), index, flow, towerCell, kTestRange);
     CHECK(slot != kNoTarget);
     CHECK_EQ(withLeader[slot].id, std::uint32_t(999));
 }
@@ -218,9 +227,9 @@ TEST(targeting_ties_break_on_handle_not_position) {
 // constructed test above cannot see because it hands the index a layout it
 // chose.
 TEST(indexed_targeting_matches_bruteforce_in_a_real_run) {
-    World world(config::kGridWidth, config::kGridHeight, 31337);
+    World world(testing::shippedContent(), 31337);
 
-    const int lane = config::kGridHeight / 2;
+    const int lane = world.grid().height() / 2;
     for (int x = 3; x <= 7; ++x) {
         world.placeTower({x, lane - 1});
         world.placeTower({x, lane + 1});
@@ -284,7 +293,7 @@ TEST(indexed_targeting_matches_bruteforce_in_a_real_run) {
 // registered no leak and cost no life. Every enemy that reaches the goal cell
 // must be accounted for, exactly once.
 TEST(enemies_that_reach_the_goal_are_always_counted) {
-    World world;
+    World world(testing::shippedContent());
 
     int previousLives = world.lives();
     int previousLeaked = world.enemiesLeaked();
@@ -314,7 +323,7 @@ TEST(enemies_that_reach_the_goal_are_always_counted) {
 // hover cell usually has not moved between frames, so almost all of that work
 // was for an answer already known.
 TEST(placement_preview_allocates_nothing) {
-    World world;
+    World world(testing::shippedContent());
     const Cell hovered{5, 3};
 
     // First call is allowed to allocate: it grows the reusable BFS buffers.
@@ -341,8 +350,8 @@ TEST(placement_preview_allocates_nothing) {
     // And the memo must not go stale. Placing a tower changes the grid, so the
     // cached answer for a cell it seals off has to be recomputed rather than
     // replayed. A memo that never invalidates would pass every assertion above.
-    World fresh;
-    const Cell probe{1, config::kGridHeight / 2 - 1};
+    World fresh(testing::shippedContent());
+    const Cell probe{1, fresh.grid().height() / 2 - 1};
     CHECK(fresh.canPlaceAt(probe));
     CHECK(fresh.placeTower(probe) == PlacementResult::Placed);
     CHECK(!fresh.canPlaceAt(probe));  // now occupied
@@ -352,8 +361,8 @@ TEST(placement_preview_allocates_nothing) {
 // allocation is a per-tick chance to stall, and the scratch buffers exist
 // precisely to avoid it.
 TEST(steady_state_step_allocates_nothing) {
-    World world;
-    const int lane = config::kGridHeight / 2;
+    World world(testing::shippedContent());
+    const int lane = world.grid().height() / 2;
     for (int x = 3; x <= 6; ++x) {
         world.placeTower({x, lane - 1});
         world.placeTower({x, lane + 1});
@@ -423,7 +432,7 @@ TEST(stress_5000_enemies) {
 
     // 200 towers querying once each is a heavy late-game board.
     constexpr int kTowers = 200;
-    constexpr float kRange = config::kTowerRange;
+    constexpr float kRange = kTestRange;
     std::vector<Cell> towers;
     for (int i = 0; i < kTowers; ++i) {
         towers.push_back({rng.rangeInt(0, kWidth - 1), rng.rangeInt(0, kHeight - 1)});

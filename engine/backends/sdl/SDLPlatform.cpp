@@ -57,6 +57,8 @@ public:
         out.pointerPressed = false;
         out.restartPressed = false;
         out.pausePressed = false;
+        out.reloadPressed = false;
+        out.towerSelection = -1;
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -88,6 +90,13 @@ public:
                     if (event.key.key == SDLK_ESCAPE) out.quitRequested = true;
                     if (event.key.key == SDLK_R) out.restartPressed = true;
                     if (event.key.key == SDLK_SPACE) out.pausePressed = true;
+                    if (event.key.key == SDLK_F5) out.reloadPressed = true;
+                    // Number keys pick the tower type to build. 1 is the first
+                    // tower in the content file, so adding a type to the data adds
+                    // a hotkey for it with no code change.
+                    if (event.key.key >= SDLK_1 && event.key.key <= SDLK_9) {
+                        out.towerSelection = static_cast<int>(event.key.key - SDLK_1);
+                    }
                     break;
 
                 default:
@@ -119,6 +128,18 @@ public:
 
     void setWindowTitle(const std::string& title) override {
         SDL_SetWindowTitle(window_, title.c_str());
+    }
+
+    bool readFile(const std::string& path, std::string& out, std::string& error) const override {
+        std::size_t size = 0;
+        void* bytes = SDL_LoadFile(path.c_str(), &size);
+        if (bytes == nullptr) {
+            error = "cannot read " + path + ": " + SDL_GetError();
+            return false;
+        }
+        out.assign(static_cast<const char*>(bytes), size);
+        SDL_free(bytes);
+        return true;
     }
 
     void* getGraphicsProcAddress(const char* name) const override {

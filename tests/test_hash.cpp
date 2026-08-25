@@ -25,9 +25,9 @@ using namespace ktd;
 // then update the constant in the same commit that made it, and say so in the
 // message. Updating it separately hides exactly what this test exists to show.
 TEST(determinism_golden) {
-    constexpr std::uint64_t kGoldenChecksum = 0x8D8C026A6A51F571ULL;
+    constexpr std::uint64_t kGoldenChecksum = 0x51D74AAE506DE6CAULL;
 
-    World world(config::kGridWidth, config::kGridHeight, scenario::kSeed);
+    World world(scenario::content(), scenario::kSeed);
     scenario::run(world, [](std::uint64_t, const World&) {});
 
     CHECK_EQ(world.checksum(), kGoldenChecksum);
@@ -36,7 +36,7 @@ TEST(determinism_golden) {
 // A hash that never changes would pass the golden test forever while proving
 // nothing. Every tick of the scripted run must be distinguishable.
 TEST(checksum_changes_as_the_world_advances) {
-    World world(config::kGridWidth, config::kGridHeight, scenario::kSeed);
+    World world(scenario::content(), scenario::kSeed);
     std::vector<std::uint64_t> seen;
     scenario::run(world, [&](std::uint64_t, const World& w) { seen.push_back(w.checksum()); });
 
@@ -56,8 +56,8 @@ TEST(checksum_changes_as_the_world_advances) {
 // merely end up close. This replaces the old field-by-field comparison with a
 // 1e-6 tolerance, which could not have detected a genuine divergence.
 TEST(identical_seeds_produce_identical_checksums_at_every_tick) {
-    World a(config::kGridWidth, config::kGridHeight, scenario::kSeed);
-    World b(config::kGridWidth, config::kGridHeight, scenario::kSeed);
+    World a(scenario::content(), scenario::kSeed);
+    World b(scenario::content(), scenario::kSeed);
 
     std::vector<std::uint64_t> traceA;
     scenario::run(a, [&](std::uint64_t, const World& w) { traceA.push_back(w.checksum()); });
@@ -74,8 +74,8 @@ TEST(identical_seeds_produce_identical_checksums_at_every_tick) {
 // Different seeds must not collide into the same run -- otherwise the golden
 // test would pass for a world that ignores its seed entirely.
 TEST(different_seeds_produce_different_checksums) {
-    World a(config::kGridWidth, config::kGridHeight, scenario::kSeed);
-    World b(config::kGridWidth, config::kGridHeight, scenario::kSeed + 1);
+    World a(scenario::content(), scenario::kSeed);
+    World b(scenario::content(), scenario::kSeed + 1);
     scenario::run(a, [](std::uint64_t, const World&) {});
     scenario::run(b, [](std::uint64_t, const World&) {});
     CHECK(a.checksum() != b.checksum());
@@ -153,7 +153,7 @@ TEST(determinism_debug_matches_release) {
         }
     }
 
-    World world(config::kGridWidth, config::kGridHeight, scenario::kSeed);
+    World world(scenario::content(), scenario::kSeed);
     std::vector<std::string> actual;
     scenario::run(world, [&](std::uint64_t tick, const World& w) {
         std::ostringstream row;
