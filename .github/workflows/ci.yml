@@ -94,7 +94,33 @@ jobs:
           # rather than left to Git Bash's implicit resolution.
           BIN="build/${{ matrix.preset }}/tests/ktd_hashdump"
           if [ -f "$BIN.exe" ]; then BIN="$BIN.exe"; fi
+
+          # The status is captured rather than left to `set -e`, because a bare
+          # crash here reports "exit code 139" and nothing else -- not how far
+          # the run got, which is the one fact that says whether it died loading
+          # content or on the last tick.
+          set +e
           "$BIN" > trace.tsv
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::error::ktd_hashdump exited $status after $(wc -l < trace.tsv) of 3000 lines"
+            # TEMPORARY: name the faulting frame on the one platform that cannot
+            # be reproduced locally. Remove once the Windows release crash is fixed.
+            GDB=$(command -v gdb || echo /c/mingw64/bin/gdb)
+            if [ -x "$GDB" ]; then
+              # The trace goes to a file inside gdb so the backtrace is not
+              # buried under 3000 lines of hashes.
+              "$GDB" -batch -ex "run > gdb-trace.tsv" -ex bt -ex "info registers" \
+                "$BIN" > gdb.log 2>&1 || true
+              echo "gdb run wrote $(wc -l < gdb-trace.tsv 2>/dev/null || echo 0) lines"
+              echo "--- gdb ---"
+              tail -n 60 gdb.log
+            else
+              echo "no gdb on this runner"
+            fi
+            exit 1
+          fi
           # A truncated trace would still diff clean against another truncated
           # trace, so assert the length rather than trusting it.
           test "$(wc -l < trace.tsv)" -eq 3000
