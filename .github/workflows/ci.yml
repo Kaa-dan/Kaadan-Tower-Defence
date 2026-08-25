@@ -111,11 +111,11 @@ jobs:
             if [ -x "$GDB" ]; then
               # The trace goes to a file inside gdb so the backtrace is not
               # buried under 3000 lines of hashes.
-              "$GDB" -batch -ex "run > gdb-trace.tsv" -ex bt -ex "info registers" \
+              "$GDB" -batch -ex "run > gdb-trace.tsv" -ex "bt full" \
                 "$BIN" > gdb.log 2>&1 || true
               echo "gdb run wrote $(wc -l < gdb-trace.tsv 2>/dev/null || echo 0) lines"
               echo "--- gdb ---"
-              tail -n 60 gdb.log
+              head -n 80 gdb.log
             else
               echo "no gdb on this runner"
             fi
