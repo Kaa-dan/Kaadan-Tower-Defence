@@ -109,10 +109,12 @@ jobs:
             # be reproduced locally. Remove once the Windows release crash is fixed.
             GDB=$(command -v gdb || echo /c/mingw64/bin/gdb)
             if [ -x "$GDB" ]; then
-              "$GDB" -batch -ex run -ex bt -ex "info locals" "$BIN" \
-                > gdb.log 2>&1 || true
+              # A command file, not -ex: Git Bash splits a quoted multi-word
+              # -ex argument, and the stray word is then taken as the program.
+              printf 'set pagination off\nrun\nbt full\ninfo sharedlibrary\n' > gdb.cmds
+              "$GDB" -batch -x gdb.cmds "$BIN" > gdb.log 2>&1 || true
               echo "--- gdb ---"
-              head -n 100 gdb.log
+              head -n 120 gdb.log
             else
               echo "no gdb on this runner"
             fi
