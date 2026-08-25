@@ -109,13 +109,10 @@ jobs:
             # be reproduced locally. Remove once the Windows release crash is fixed.
             GDB=$(command -v gdb || echo /c/mingw64/bin/gdb)
             if [ -x "$GDB" ]; then
-              # The trace goes to a file inside gdb so the backtrace is not
-              # buried under 3000 lines of hashes.
-              "$GDB" -batch -ex "run > gdb-trace.tsv" -ex "bt full" \
-                "$BIN" > gdb.log 2>&1 || true
-              echo "gdb run wrote $(wc -l < gdb-trace.tsv 2>/dev/null || echo 0) lines"
+              "$GDB" -batch -ex run -ex bt -ex "info locals" "$BIN" \
+                > gdb.log 2>&1 || true
               echo "--- gdb ---"
-              head -n 80 gdb.log
+              head -n 100 gdb.log
             else
               echo "no gdb on this runner"
             fi
