@@ -28,6 +28,27 @@ option(KTD_TESTS_ONLY "Skip engine/ and app/; build only the simulation and test
 # flags variables, so a fast-math flag cannot slip in from the command line.
 ktd_deny_fast_math()
 
+# Link the GCC runtimes statically on MinGW.
+#
+# A MinGW build links libstdc++-6.dll and libgcc_s_seh-1.dll by name, and
+# Windows resolves them off PATH. Any machine with a second MinGW on it -- and
+# every machine with Git for Windows has one, at
+# C:\Program Files\Git\mingw64\bin -- can therefore hand the process a
+# libstdc++ from a different toolchain than the one that compiled it. That is
+# not a link error or a warning; it is a segfault somewhere inside the standard
+# library, at whatever call first depends on a layout the two versions disagree
+# about. It cost this project a green CI run: ktd_hashdump crashed constructing
+# a std::ifstream, but only in Release, and only in the steps that run under
+# Git Bash, because those are the ones with Git's mingw64 on PATH.
+#
+# Static runtimes remove the question. It also matters past CI: a shipped
+# Windows build must not depend on which DLL a player happens to have.
+#
+# Set before add_subdirectory so every target inherits it.
+if(MINGW)
+    add_link_options(-static-libgcc -static-libstdc++)
+endif()
+
 add_subdirectory(game)     # pure C++ simulation. No platform, no graphics.
 
 if(NOT KTD_TESTS_ONLY)

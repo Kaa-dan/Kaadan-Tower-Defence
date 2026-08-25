@@ -105,19 +105,6 @@ jobs:
           set -e
           if [ "$status" -ne 0 ]; then
             echo "::error::ktd_hashdump exited $status after $(wc -l < trace.tsv) of 3000 lines"
-            # TEMPORARY: name the faulting frame on the one platform that cannot
-            # be reproduced locally. Remove once the Windows release crash is fixed.
-            GDB=$(command -v gdb || echo /c/mingw64/bin/gdb)
-            if [ -x "$GDB" ]; then
-              # A command file, not -ex: Git Bash splits a quoted multi-word
-              # -ex argument, and the stray word is then taken as the program.
-              printf 'set pagination off\nrun\nbt full\ninfo sharedlibrary\n' > gdb.cmds
-              "$GDB" -batch -x gdb.cmds "$BIN" > gdb.log 2>&1 || true
-              echo "--- gdb ---"
-              head -n 120 gdb.log
-            else
-              echo "no gdb on this runner"
-            fi
             exit 1
           fi
           # A truncated trace would still diff clean against another truncated
