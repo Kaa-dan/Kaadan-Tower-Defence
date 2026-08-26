@@ -12,9 +12,9 @@ Start a phase with `/phase <n>`. Check state with `/status`.
 | [0](phase-00-infrastructure.md) | Infrastructure: presets, CI, `-Werror`, purity guards | ½ d | ✅ done (`340f0a7`) |
 | [1](phase-01-determinism.md) | Determinism hardening | 2 d | ✅ done, **CI verified** |
 | [2](phase-02-entity-storage.md) | Entity storage: handles, pools, spatial index | 3 d | ✅ done (`phase-02/entity-storage`, PR #4) |
-| [3](phase-03-content.md) | Data-driven content + hot reload | 3 d | ✅ done (branch pending) |
-| [4](phase-04-systems.md) | Systems split, damage pipeline, event queue | 2 d | ⬜ **next** |
-| [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 4-5 d | ⬜ ⚠️ |
+| [3](phase-03-content.md) | Data-driven content + hot reload | 3 d | ✅ done (`phase-03/content`, PR #5) |
+| [4](phase-04-systems.md) | Systems split, damage pipeline, event queue | 2 d | ✅ done (branch pending) |
+| [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 4-5 d | ⬜ **next** ⚠️ |
 | [6](phase-06-presentation.md) | Text, input, filesystem, interpolation | 4 d | ⬜ ⚠️ |
 | [7](phase-07-persistence.md) | Save / replay / settings | 2 d | ⬜ |
 | [8](phase-08-ui-audio.md) | UI framework, audio, scenes | 5-7 d | ⬜ |
@@ -75,9 +75,34 @@ Two dependencies are load-bearing:
 - **Hot reload is untested by hand.** F5 builds, and its load ordering, error recovery and
   replay determinism are covered by tests, but nobody has pressed the key and watched a run
   rebalance. That is a playtest, which is the owner's.
+- **Re-baselined the determinism hash a third time.** Phase 4 moved the golden checksum to
+  `0xC420722146B89A12` and regenerated `tests/data/reference_trace.tsv`. Four causes, all
+  intended: enemies and projectiles gained `previousPosition` (Phase 6's interpolation needs
+  it), towers gained a serialized mod set, projectiles gained a damage type and a firing
+  tower, and `content/combat.ktd` moved the content fingerprint. The scripted scenario is
+  unchanged and still builds only tower type 0 against a grunt with no armor and no
+  resistances, so the underlying run is the same run. Any replay recorded before this is
+  invalid.
+- **Burn and the resistance table are untuned, like the Cannon.** `content/combat.ktd` gives
+  the cannon a fire damage type and a stacking burn, and `content/enemies.ktd` gives the runner
+  50% fire resistance. They exist so the shipped content exercises the damage pipeline rather
+  than only a test fixture. Nobody has played against any of it. The arrow tower — the only one
+  the determinism scenario builds — deals physical to an unarmored grunt, so the shipped run's
+  damage numbers are unchanged.
+- **Victory is unreachable in the shipped level, on purpose.** `GameState::Victory` exists and
+  is tested, but a level is only winnable when its content authors waves and declares no
+  endless rule. `content/waves.ktd` declares one, so the shipped game is still pure endless.
+  Whether the first campaign level ends is a design call.
+- **Game speed is 1x/2x/3x on F1-F3 and has not been played with.** Fast-forward multiplies
+  steps rather than lengthening dt, so a 3x run is bit-identical to a 1x one
+  (`game_speed_multiplies_steps_not_dt` pins it). Whether three is the right top speed, and
+  whether it should be on those keys, is feel.
 - **`ItemDef` and `SkillNodeDef` were deliberately not written.** The Phase 3 spec lists them,
   but nothing consumes them and ADR 0003's behaviour verbs are Phase 4's work. An empty struct
-  written now would fossilise a guess. Same reasoning for damage types, resistances, status
+  written now would fossilise a guess. Phase 4 wrote the damage types, resistances and status
+  effects, because the damage pipeline consumes them; the behaviour verbs (splash, pierce,
+  chain, on-kill) and the item and skill definitions that would carry them are still unwritten
+  for the same reason as before. Same reasoning for damage types, resistances, status
   effects and targeting policies.
 - **`stress_5000_enemies` does not step the real `World`.** Nothing today can put 5,000
   enemies into a world: wave size is a function of the wave number and lives run out first. It
@@ -94,12 +119,13 @@ Bugs in the current code, not missing features. Each names the phase that fixes 
 | ~~2~~ | ~~`findTarget` returns a raw `const Enemy*` into a vector~~ — fixed in Phase 2: it returns an `EnemyId` handle, and the projectile loop borrows through an epoch-checked `Ref`. Tie-breaks resolve on the stable entity id ([ADR 0009](../decisions/0009-handles-address-ids-identify.md)) | ~~`game/src/World.cpp`~~ | ✅ 2 |
 | ~~3~~ | ~~O(P×E) double linear scan per frame~~ — fixed in Phase 2: one O(1) handle lookup per projectile, and targeting queries a tile-bucket index | ~~`game/src/World.cpp:197,202`~~ | ✅ 2 |
 | ~~4~~ | ~~`canPlaceTower` copies the whole `Grid` and flood-fills every frame~~ — fixed in Phase 2: `World::canPlaceAt` treats one cell as blocked instead of copying, reuses its BFS buffers, and memoizes on `(cell, gridVersion)`. `placement_preview_allocates_nothing` pins it | ~~`game/src/Path.cpp:94`~~ | ✅ 2 |
-| 11 | `docs/ARCHITECTURE.md`'s "Entity storage" section still describes the pre-Phase-2 `std::vector` design and says "Phase 2 moves to…". Documentation drift from Phase 2, spotted while updating the Content section | `docs/ARCHITECTURE.md:58` | unassigned |
+| ~~11~~ | ~~`docs/ARCHITECTURE.md`'s "Entity model" section still describes the pre-Phase-2 `std::vector` design~~ — rewritten in Phase 4 alongside the new "The tick" and "Damage" sections, because leaving a stale section next to a new one is worse than the drift | ~~`docs/ARCHITECTURE.md:58`~~ | ✅ 4 |
 | 10 | The `ktd_tests` CTest list is scraped at **configure** time. Adding a `TEST()` to an existing file needs no CMake edit — but `cmake --build` alone will not register it, and the suite reports green while the new tests have never run. Reconfigure after adding tests | `tests/CMakeLists.txt:27` | unassigned |
 | 5 | No render interpolation — visible judder above 60 Hz, which is most Steam users | `app/main.cpp:94` | 6 |
 | ~~6~~ | ~~Goal detection is a radius test; fast enemies can tunnel past~~ — fixed in Phase 2: a cell test, which the movement clamp makes tunnel-proof | ~~`game/src/World.cpp:113`~~ | ✅ 2 |
 | ~~7~~ | ~~`Rng::rangeInt` has modulo bias; seeds are not decorrelated~~ — fixed in Phase 1: Lemire's method + splitmix64 mixing | ~~`game/include/game/Types.h:52`~~ | ✅ 1 |
-| 8 | `waveInProgress()` stays true forever once `state_` is `Defeat`, because `step()` returns early and the field never clears. Harmless in the game; it hangs any loop that waits on it | `game/include/game/World.h`, `game/src/World.cpp:25-27` | unassigned |
+| 8 | `waveInProgress()` stays true forever once the state is `Defeat`, because `step()` returns early and the field never clears. Harmless in the game; it hangs any loop that waits on it. Now also true of `Victory` and `Paused` | `game/include/game/World.h`, `game/src/World.cpp` | unassigned |
+| 12 | `sys::damage` emits an `EnemyDamaged` event for every hit, including hits that resolve to zero after armor. Presentation will want to distinguish "blocked" from "hit for nothing", and today it cannot without re-deriving the formula | `game/src/Systems.cpp` | unassigned |
 | 9 | Targeting ties are **unreachable on the current level** — partially addressed in Phase 3: a wave can now mix enemy types at different speeds (`waves_run_authored_first_then_endless` covers the authoring), which is the mechanism that makes two enemies able to share a BFS distance at all. But the *shipped* level is still one lane at one speed, so a real run still never hits a tie. Closing this the rest of the way is level design, not code | `game/include/game/Targeting.h` | level design |
 
 If you find a new one, add it here rather than fixing it inside an unrelated phase.

@@ -7,7 +7,8 @@ bool ContentSource::reload(const Platform& platform, content::ContentDb& out) {
 
     // Load order does not matter -- the database resolves references in a
     // second pass -- so this list is only about which files exist.
-    static const char* const kFiles[] = {"level.ktd", "towers.ktd", "enemies.ktd", "waves.ktd"};
+    static const char* const kFiles[] = {"level.ktd", "combat.ktd", "towers.ktd", "enemies.ktd",
+                                         "waves.ktd"};
 
     std::vector<std::string> names;
     std::vector<std::string> texts;
@@ -49,15 +50,16 @@ bool ContentSource::reload(const Platform& platform, content::ContentDb& out) {
     return true;
 }
 
-void resimulate(World& world, const std::vector<Command>& commands, std::uint64_t throughTick) {
+void resimulate(World& world, const std::vector<RecordedCommand>& commands,
+                std::uint64_t throughTick) {
     std::size_t next = 0;
     for (std::uint64_t tick = 0; tick < throughTick; ++tick) {
-        // Commands are applied before the step whose tick they were recorded
-        // on, which is the order the live loop applies them in. Getting this
+        // Commands are enqueued before the step whose tick they were recorded
+        // on, which is the order the live loop enqueues them in. Getting this
         // backwards would make a reload of unchanged content produce a
         // different run, which is the one thing it must never do.
         while (next < commands.size() && commands[next].tick == tick) {
-            (void)world.placeTower(commands[next].cell, commands[next].tower);
+            (void)world.enqueue(commands[next].command);
             ++next;
         }
         world.step();

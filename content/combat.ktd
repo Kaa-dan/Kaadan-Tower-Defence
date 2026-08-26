@@ -1,0 +1,41 @@
+# Damage types and status effects.
+#
+# A damage type carries no numbers of its own. It exists so that resistance is a
+# table lookup rather than a special case per element: an enemy lists what it
+# resists, a tower lists what it deals, and the damage pipeline multiplies.
+#
+# Order matters here in one specific way -- an enemy's resistances are stored
+# dense, indexed by damage type -- but only inside one build. Nothing outside
+# this file names a type by number.
+
+[damage_type.physical]
+name = "Physical"
+
+[damage_type.fire]
+name = "Fire"
+
+# Status effects.
+#
+# `stack` picks what happens when the effect lands on something that already has
+# it, and is the whole reason this is data: "does burn stack?" is a design
+# question that should not need a recompile.
+#
+#   refresh          one instance; a reapplication resets the clock
+#   stack_intensity  stacks up to max_stacks, each one multiplying again
+#   stack_duration   one instance; a reapplication extends the clock
+#   ignore           the first application wins outright
+#
+# Durations and damage are authored per tick, for the reason ADR 0007 gives for
+# reload times: the simulation counts ticks, and a rate that does not divide 60
+# evenly would be silently rounded.
+
+# Burn is what the cannon leaves behind. Like the cannon itself, these numbers
+# are a starting point that proves the path carries behaviour -- nobody has
+# played against them.
+[status.burn]
+name = "Burn"
+stack = "stack_intensity"
+max_stacks = 3
+duration_ticks = 120
+damage_per_tick = 0.25
+damage_type = "fire"

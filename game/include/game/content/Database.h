@@ -37,8 +37,47 @@ namespace ktd::content {
 using TowerDefId = std::uint16_t;
 using EnemyDefId = std::uint16_t;
 using ProjectileDefId = std::uint16_t;
+using DamageTypeId = std::uint16_t;
+using StatusDefId = std::uint16_t;
 
 inline constexpr std::uint16_t kNoDef = 0xFFFFu;
+
+// A damage type exists so that resistance is a table lookup rather than a
+// special case per element. It carries no numbers of its own: everything about
+// "fire" lives in what resists it and what deals it.
+struct DamageTypeDef {
+    std::string id;
+    std::string name;
+};
+
+// What happens when an effect is applied to an enemy that already has it.
+//
+// Four policies covers every debuff the design has asked for, and picking one
+// per effect in data is what keeps "does burn stack?" out of the code. Append
+// only: the value is baked into the state hash.
+enum class StackPolicy : std::uint8_t {
+    Refresh = 0,         // one instance; a reapplication resets the clock
+    StackIntensity = 1,  // stacks up to maxStacks, each one multiplying again
+    StackDuration = 2,   // one instance; a reapplication extends the clock
+    Ignore = 3,          // the first application wins outright
+};
+
+struct StatusDef {
+    std::string id;
+    std::string name;
+    StackPolicy policy = StackPolicy::Refresh;
+    std::uint16_t maxStacks = 1;
+    std::uint32_t durationTicks = 0;
+
+    // Applied once per stack, in ascending StatusDefId order. See ADR 0011.
+    float damageTakenMultiplier = 1.0f;
+    float speedMultiplier = 1.0f;
+
+    // Damage over time, dealt on every tick the effect is live. Authored per
+    // tick rather than per second for the reason ADR 0007 gives for reload.
+    float damagePerTick = 0.0f;
+    DamageTypeId damageType = kNoDef;
+};
 
 struct ProjectileDef {
     std::string id;
@@ -55,6 +94,10 @@ struct TowerDef {
     float damage = 0.0f;
     std::uint32_t reloadTicks = 0;
     ProjectileDefId projectile = kNoDef;
+    DamageTypeId damageType = kNoDef;
+    // Applied to whatever this tower hits. kNoDef means the tower applies
+    // nothing, which is what every tower shipped before Phase 4 did.
+    StatusDefId appliesStatus = kNoDef;
 };
 
 struct EnemyDef {
@@ -64,6 +107,20 @@ struct EnemyDef {
     float speed = 0.0f;  // tiles per second
     float radius = 0.0f;
     int bounty = 0;  // gold paid on kill
+
+    // Subtracted after every multiplier, so armor is worth most against many
+    // small hits and least against one big one. See ADR 0011 for the order.
+    float armor = 0.0f;
+    // One entry per damage type, dense, so the pipeline indexes rather than
+    // searches. The loader sizes and zero-fills it once every damage type is
+    // known, which is why it cannot be resolved in pass one.
+    std::vector<float> resistances;
+
+    // 0 for an unknown type, so a tower whose damage type was deleted from the
+    // content still deals damage rather than crashing.
+    float resistance(DamageTypeId type) const {
+        return type < resistances.size() ? resistances[type] : 0.0f;
+    }
 };
 
 // One authored wave: `counts[i]` enemies of type `enemies[i]`, spawned in
@@ -119,10 +176,14 @@ public:
     Span<const TowerDef> towers() const { return towers_; }
     Span<const EnemyDef> enemies() const { return enemies_; }
     Span<const ProjectileDef> projectiles() const { return projectiles_; }
+    Span<const DamageTypeDef> damageTypes() const { return damageTypes_; }
+    Span<const StatusDef> statuses() const { return statuses_; }
 
     const TowerDef& tower(TowerDefId id) const { return towers_[id]; }
     const EnemyDef& enemy(EnemyDefId id) const { return enemies_[id]; }
     const ProjectileDef& projectile(ProjectileDefId id) const { return projectiles_[id]; }
+    const DamageTypeDef& damageType(DamageTypeId id) const { return damageTypes_[id]; }
+    const StatusDef& status(StatusDefId id) const { return statuses_[id]; }
 
     const LevelDef& level() const { return level_; }
     const WaveRules& waves() const { return waves_; }
@@ -131,6 +192,8 @@ public:
     TowerDefId findTower(std::string_view id) const;
     EnemyDefId findEnemy(std::string_view id) const;
     ProjectileDefId findProjectile(std::string_view id) const;
+    DamageTypeId findDamageType(std::string_view id) const;
+    StatusDefId findStatus(std::string_view id) const;
 
     // --- building ---------------------------------------------------------
     // References must already be resolved to ids, which is what forces the
@@ -138,10 +201,31 @@ public:
     TowerDefId addTower(TowerDef def);
     EnemyDefId addEnemy(EnemyDef def);
     ProjectileDefId addProjectile(ProjectileDef def);
+    DamageTypeId addDamageType(DamageTypeDef def);
+    StatusDefId addStatus(StatusDef def);
     // Pass two's only job: the def is already in the vector, and this is how
     // its cross-reference gets filled in.
     void setTowerProjectile(TowerDefId tower, ProjectileDefId projectile) {
         towers_[tower].projectile = projectile;
+    }
+    void setTowerDamageType(TowerDefId tower, DamageTypeId type) {
+        towers_[tower].damageType = type;
+    }
+    void setTowerStatus(TowerDefId tower, StatusDefId status) {
+        towers_[tower].appliesStatus = status;
+    }
+    void setStatusDamageType(StatusDefId status, DamageTypeId type) {
+        statuses_[status].damageType = type;
+    }
+    // Resistances are a dense vector over the damage types, so they cannot be
+    // filled in until every type is registered -- pass two's job, like every
+    // other cross-reference.
+    void setEnemyResistance(EnemyDefId enemy, DamageTypeId type, float value) {
+        EnemyDef& def = enemies_[enemy];
+        if (def.resistances.size() <= type) {
+            def.resistances.resize(static_cast<std::size_t>(type) + 1, 0.0f);
+        }
+        def.resistances[type] = value;
     }
     void setLevel(LevelDef def) { level_ = std::move(def); }
     void setWaves(WaveRules rules) { waves_ = std::move(rules); }
@@ -156,6 +240,25 @@ public:
     // def means adding a line here.
     template <typename Sink>
     void serialize(Sink& out) const {
+        // Damage types first: every resistance table below is indexed by them,
+        // so a type inserted in the middle changes what those numbers mean.
+        out.u32(static_cast<std::uint32_t>(damageTypes_.size()));
+        for (const DamageTypeDef& def : damageTypes_) {
+            writeString(out, def.id);
+        }
+
+        out.u32(static_cast<std::uint32_t>(statuses_.size()));
+        for (const StatusDef& def : statuses_) {
+            writeString(out, def.id);
+            out.u8(static_cast<std::uint8_t>(def.policy));
+            out.u32(def.maxStacks);
+            out.u32(def.durationTicks);
+            out.f32(def.damageTakenMultiplier);
+            out.f32(def.speedMultiplier);
+            out.f32(def.damagePerTick);
+            out.u32(def.damageType);
+        }
+
         out.u32(static_cast<std::uint32_t>(projectiles_.size()));
         for (const ProjectileDef& def : projectiles_) {
             writeString(out, def.id);
@@ -172,6 +275,8 @@ public:
             out.f32(def.damage);
             out.u32(def.reloadTicks);
             out.u32(def.projectile);
+            out.u32(def.damageType);
+            out.u32(def.appliesStatus);
         }
 
         out.u32(static_cast<std::uint32_t>(enemies_.size()));
@@ -181,6 +286,11 @@ public:
             out.f32(def.speed);
             out.f32(def.radius);
             out.i32(def.bounty);
+            out.f32(def.armor);
+            out.u32(static_cast<std::uint32_t>(def.resistances.size()));
+            for (const float value : def.resistances) {
+                out.f32(value);
+            }
         }
 
         // Display names are absent on purpose: they are the one field that can
@@ -238,6 +348,8 @@ private:
     std::vector<TowerDef> towers_;
     std::vector<EnemyDef> enemies_;
     std::vector<ProjectileDef> projectiles_;
+    std::vector<DamageTypeDef> damageTypes_;
+    std::vector<StatusDef> statuses_;
     LevelDef level_;
     WaveRules waves_;
 };

@@ -59,6 +59,7 @@ public:
         out.pausePressed = false;
         out.reloadPressed = false;
         out.towerSelection = -1;
+        out.speedSelection = -1;
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -91,6 +92,9 @@ public:
                     if (event.key.key == SDLK_R) out.restartPressed = true;
                     if (event.key.key == SDLK_SPACE) out.pausePressed = true;
                     if (event.key.key == SDLK_F5) out.reloadPressed = true;
+                    if (event.key.key >= SDLK_F1 && event.key.key <= SDLK_F3) {
+                        out.speedSelection = static_cast<int>(event.key.key - SDLK_F1) + 1;
+                    }
                     // Number keys pick the tower type to build. 1 is the first
                     // tower in the content file, so adding a type to the data adds
                     // a hotkey for it with no code change.

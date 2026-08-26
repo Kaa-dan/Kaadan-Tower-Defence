@@ -13,21 +13,26 @@ using namespace ktd;
 
 namespace {
 
-std::string buildTitle(const World& world, content::TowerDefId selected, bool paused,
+std::string buildTitle(const World& world, content::TowerDefId selected, int speed,
                        bool contentBroken) {
     std::string title = "kaadanTD  |  Wave " + std::to_string(world.waveNumber()) + "   Gold " +
                         std::to_string(world.gold()) + "   Lives " + std::to_string(world.lives()) +
                         "   Killed " + std::to_string(world.enemiesKilled());
     title += "   Building: " + world.content().tower(selected).name + " (" +
              std::to_string(world.content().tower(selected).cost) + "g)";
+    if (speed > 1) {
+        title += "   " + std::to_string(speed) + "x";
+    }
     if (contentBroken) {
         title += "   [CONTENT ERROR - see console, F5 to retry]";
     } else if (world.state() == GameState::Defeat) {
         title += "   [DEFEAT - press R to restart]";
-    } else if (paused) {
+    } else if (world.state() == GameState::Victory) {
+        title += "   [VICTORY - press R to play again]";
+    } else if (world.state() == GameState::Paused) {
         title += "   [PAUSED]";
     } else {
-        title += "   [click to build, 1-9 tower, F5 reload, space pause, R restart]";
+        title += "   [click to build, 1-9 tower, F1-F3 speed, F5 reload, space pause, R restart]";
     }
     return title;
 }
@@ -73,14 +78,17 @@ int main(int /*argc*/, char** /*argv*/) {
     World world(content);
     GameView view;
     InputState input;
-    bool paused = false;
     content::TowerDefId selectedTower = 0;
     bool contentBroken = false;
+    // Simulation ticks per real-time tick. Fast-forward multiplies steps rather
+    // than lengthening dt, so a run played at 3x is bit-identical to the same
+    // run played at 1x.
+    int speed = 1;
 
-    // Every placement the player has made this run, with the tick it landed on.
+    // Every command the player has issued this run, with the tick it landed on.
     // This is what a hot reload replays; Phase 7's replay files are the same
     // log written to disk.
-    std::vector<app::Command> commands;
+    std::vector<app::RecordedCommand> commands;
 
     // Fixed-timestep simulation decoupled from the render rate.
     //
@@ -113,12 +121,14 @@ int main(int /*argc*/, char** /*argv*/) {
         accumulator += frameTime;
 
         if (input.pausePressed) {
-            paused = !paused;
+            world.setPaused(world.state() != GameState::Paused);
         }
         if (input.restartPressed) {
             world = World(content);
             commands.clear();
-            paused = false;
+        }
+        if (input.speedSelection >= 1 && input.speedSelection <= 3) {
+            speed = input.speedSelection;
         }
         if (input.towerSelection >= 0 &&
             static_cast<std::size_t>(input.towerSelection) < content.towers().size()) {
@@ -160,18 +170,35 @@ int main(int /*argc*/, char** /*argv*/) {
                           scaledPixels(input.windowHeight, input.pixelScale));
         const Cell hovered = view.pointerToCell(input.pointer, input);
 
-        if (input.pointerPressed && !paused && world.state() == GameState::Playing) {
-            // Recorded only when it actually happened, and stamped with the
-            // tick the world is about to step from -- which is what makes the
-            // log replay to the same run.
-            if (world.placeTower(hovered, selectedTower) == PlacementResult::Placed) {
-                commands.push_back(app::Command{world.tick(), hovered, selectedTower});
+        // Intent goes into the queue; the outcome comes back as an event after
+        // the step. The UI no longer calls placeTower, which is what makes the
+        // command log complete by construction -- there is no second path into
+        // the simulation to remember to record.
+        //
+        // Stamped with the tick the world is about to step from, and recorded
+        // whether or not it succeeds: a refused placement is part of what the
+        // player did, and replaying it re-refuses it identically.
+        if (input.pointerPressed && world.state() == GameState::Playing &&
+            world.previewPlacement(hovered, selectedTower) == PlacementResult::Placed) {
+            const Command command{CommandType::PlaceTower, hovered, selectedTower};
+            if (world.enqueue(command)) {
+                commands.push_back(app::RecordedCommand{world.tick(), command});
             }
         }
 
         while (accumulator >= kStepSeconds) {
-            if (!paused) {
+            for (int i = 0; i < speed; ++i) {
                 world.step();
+                // Drained per step, not per frame: the queue holds exactly one
+                // tick, so a fast-forwarded frame that stepped three times has
+                // three ticks' worth of events to collect and only the last
+                // would survive a per-frame read.
+                for (const Event& event : world.events()) {
+                    if (event.type == EventType::Victory) {
+                        std::printf("victory on tick %llu\n",
+                                    static_cast<unsigned long long>(world.tick()));
+                    }
+                }
             }
             accumulator -= kStepSeconds;
         }
@@ -181,13 +208,13 @@ int main(int /*argc*/, char** /*argv*/) {
 
         renderer->beginFrame(pixelWidth, pixelHeight, backgroundColor());
         view.apply(*renderer);
-        view.draw(*renderer, world, hovered, selectedTower, paused);
+        view.draw(*renderer, world, hovered, selectedTower);
         renderer->endFrame();
         platform->present();
 
         // Setting the title every frame causes visible flicker on some window
         // managers, so only push it when the text actually changes.
-        std::string title = buildTitle(world, selectedTower, paused, contentBroken);
+        std::string title = buildTitle(world, selectedTower, speed, contentBroken);
         if (title != lastTitle) {
             platform->setWindowTitle(title);
             lastTitle = std::move(title);

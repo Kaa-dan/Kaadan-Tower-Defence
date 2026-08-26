@@ -22,10 +22,14 @@ namespace ktd::app {
 // the simulation advances at a fixed rate, so "the click that happened during
 // this frame" is not a well-defined point in the run unless the tick is
 // recorded with it.
-struct Command {
+//
+// The action itself is a ktd::Command -- the same type the simulation accepts,
+// not a parallel description of it. Phase 4 made the command queue the only way
+// in, so the log is that stream plus tick numbers and there is no second path
+// that could disagree with it.
+struct RecordedCommand {
     std::uint64_t tick = 0;
-    Cell cell{};
-    content::TowerDefId tower = 0;
+    Command command{};
 };
 
 // The content directory, and everything needed to reload it.
@@ -55,6 +59,7 @@ private:
 // re-running the whole recorded run against the new data answers the question
 // the designer is actually asking, which is "show me this run, rebalanced".
 // Thirty minutes of play resimulates in well under a second.
-void resimulate(World& world, const std::vector<Command>& commands, std::uint64_t throughTick);
+void resimulate(World& world, const std::vector<RecordedCommand>& commands,
+                std::uint64_t throughTick);
 
 }  // namespace ktd::app

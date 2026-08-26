@@ -1,144 +1,26 @@
 #pragma once
 
+#include "game/Commands.h"
 #include "game/Config.h"
-#include "game/Grid.h"
-#include "game/Path.h"
-#include "game/Pool.h"
-#include "game/Rng.h"
+#include "game/Entity.h"
+#include "game/Events.h"
 #include "game/Span.h"
-#include "game/SpatialIndex.h"
-#include "game/Targeting.h"
+#include "game/Systems.h"
 #include "game/Types.h"
+#include "game/WorldState.h"
 #include "game/content/Database.h"
 
-#include <algorithm>
-#include <vector>
+#include <cstdint>
 
 namespace ktd {
-
-// The stable identity of an entity: a monotonic per-pool sequence number, unique
-// for the lifetime of a run and never recycled.
-//
-// Distinct from the storage handle on purpose, and the distinction is the
-// load-bearing idea of this phase. A handle names a slot; an id names an
-// entity. See ADR 0009.
-using EntityId = std::uint32_t;
-inline constexpr EntityId kInvalidId = 0;
-
-// Tags exist only to make the handle types distinct, so a TowerId cannot be
-// passed where an EnemyId belongs.
-struct EnemyTag {};
-struct TowerTag {};
-struct ProjectileTag {};
-
-using EnemyId = Handle<EnemyTag>;
-using TowerId = Handle<TowerTag>;
-using ProjectileId = Handle<ProjectileTag>;
-
-// Entities carry a def id and read their stats from the database, rather than
-// baking the numbers in when they are created.
-//
-// The difference is invisible until you press F5. Baked stats mean a balance
-// change only affects entities built afterwards, so a hot reload of a run in
-// progress produces a world half-governed by the old numbers. A def id means
-// there is exactly one copy of every number and it lives in the database.
-//
-// Per-entity state -- health, cooldown, position -- still lives on the entity,
-// because that is state rather than balance.
-
-struct Enemy {
-    EntityId id = kInvalidId;
-    Vec2 position{};
-    float health = 0.0f;
-    // Kept alongside the def because the wave multiplies it: two grunts from
-    // different waves share a type and not a maximum.
-    float maxHealth = 0.0f;
-    float speed = 0.0f;
-    content::EnemyDefId type = content::kNoDef;
-};
-
-struct Tower {
-    EntityId id = kInvalidId;
-    Cell cell{};
-    content::TowerDefId type = content::kNoDef;
-    std::uint32_t cooldown = 0;  // ticks until it may fire again
-    Vec2 aim{1.0f, 0.0f};        // facing, for rendering only
-};
-
-struct Projectile {
-    EntityId id = kInvalidId;
-    Vec2 position{};
-    Vec2 velocity{};
-
-    // The target is named twice, and the redundancy is deliberate.
-    //
-    // `target` is the storage handle: it makes the per-tick lookup O(1) and
-    // fails safely once the enemy dies, which is what removed the double linear
-    // scan this used to do (known-wrong #3). But a handle is a slot address, and
-    // slot addresses are a function of the pool's destruction history -- so a
-    // handle must not be written to a save file, because Phase 7 will restore
-    // into pools whose slots are assigned differently and the handle would then
-    // name the wrong enemy.
-    //
-    // `targetId` is the stable identity, and it is the one the canonical
-    // serialization writes. Both are set once when the shot is fired and never
-    // change, so they cannot drift apart.
-    EnemyId target{};
-    EntityId targetId = kInvalidId;
-    content::ProjectileDefId type = content::kNoDef;
-    // Carried on the shot rather than read from the tower, because the tower
-    // may be sold before the shot lands, and because a damage pipeline will
-    // want to modify it in flight.
-    float damage = 0.0f;
-    std::uint32_t age = 0;  // ticks since it was fired
-};
-
-enum class GameState {
-    Playing,
-    Defeat,
-};
-
-enum class PlacementResult {
-    Placed,
-    BlockedTile,    // wall, existing tower, spawn or goal
-    WouldSealPath,  // legal tile, but it would wall the route off entirely
-    NotEnoughGold,
-    UnknownTowerType,  // the content has no tower with that index
-};
-
-namespace detail {
-
-// The entities of one type in canonical order: ascending id, independent of
-// where they happen to sit in storage.
-//
-// This is what lets Phase 2 swap std::vector for a swap-and-pop pool without
-// moving the hash. Array position is a function of destruction history; id is
-// not. Serializing in array order would have made every removal reorder the
-// byte stream, and the golden hash -- the only evidence that the storage
-// refactor preserved behaviour -- would have failed for a reason that has
-// nothing to do with behaviour.
-//
-// stable_sort, not sort: the purity guard bans std::sort because the three
-// standard libraries pick different introsort pivots and order equal elements
-// differently. Ids are unique here, so it is a belt-and-braces choice, but the
-// rule is worth keeping unconditional.
-template <typename T>
-std::vector<const T*> byId(Span<const T> items) {
-    std::vector<const T*> ordered;
-    ordered.reserve(items.size());
-    for (const T& item : items) {
-        ordered.push_back(&item);
-    }
-    std::stable_sort(ordered.begin(), ordered.end(),
-                     [](const T* a, const T* b) { return a->id < b->id; });
-    return ordered;
-}
-
-}  // namespace detail
 
 // The entire game simulation. Pure C++ with no platform or graphics
 // dependency: it is driven by step() and observed through the accessors, so it
 // runs identically inside the renderer-less test suite and on every platform.
+//
+// Phase 4 moved the rules out into free functions (Systems.h) and the fields
+// into a plain struct (WorldState.h). What is left here is the lid: ownership,
+// the fixed order the systems run in, and a read-only view for presentation.
 class World {
 public:
     // The database must outlive the world, and is not copied: a tower reads its
@@ -146,179 +28,108 @@ public:
     //
     // There is no default. A World with no content has no level to stand on and
     // no tower to build, and the constructor that used to supply a grid size
-    // and inherit balance from a header is exactly what this phase removed.
+    // and inherit balance from a header is exactly what Phase 3 removed.
     explicit World(const content::ContentDb& content, std::uint64_t seed = 12345);
 
     // Advances the simulation by exactly one tick.
     //
-    // There is deliberately no dt parameter. The simulation's clock is tick_,
-    // and the fixed rate is a property of the world rather than something the
-    // caller supplies -- a dt argument that nothing enforces is a standing
-    // invitation to pass a frame delta during a debugging session and quietly
-    // destroy reproducibility. config::kFixedDt still exists for the spatial
-    // math inside a tick; it is not a knob.
+    // There is deliberately no dt parameter. The simulation's clock is the tick
+    // counter, and the fixed rate is a property of the world rather than
+    // something the caller supplies -- a dt argument that nothing enforces is a
+    // standing invitation to pass a frame delta during a debugging session and
+    // quietly destroy reproducibility. config::kFixedDt still exists for the
+    // spatial math inside a tick; it is not a knob.
     void step();
 
+    // --- intent in ---------------------------------------------------------
+
+    // Queues a command for the next step(). Returns false only when the queue
+    // is full, which takes 64 actions inside one tick.
+    //
+    // This is the only way anything outside the simulation gets in, which is
+    // what makes the replay log (Phase 7) exactly this stream plus tick
+    // numbers.
+    bool enqueue(const Command& command) { return state_.commands.push(command); }
+    bool enqueuePlacement(Cell cell, content::TowerDefId type = 0) {
+        return enqueue(Command{CommandType::PlaceTower, cell, type});
+    }
+
+    // Applies a placement immediately, outside the queue.
+    //
+    // Kept public for tests and for the scripted determinism scenario, which
+    // want the answer on the spot rather than an event a tick later. The game
+    // itself goes through the queue: `app/` must not call this, or the replay
+    // log stops being complete.
     PlacementResult placeTower(Cell cell, content::TowerDefId type = 0);
-    bool canAfford(content::TowerDefId type = 0) const;
+
+    // Adds a stat modifier to a standing tower and marks its cache stale.
+    // Returns false if the tower is gone or its mod slots are full.
+    bool addTowerMod(TowerId tower, StatMod mod);
+
+    // Stops and restarts the clock. A paused tick is a tick that never
+    // happened, so this cannot change a run and is not a recorded command.
+    void setPaused(bool paused);
+
+    // --- facts out ---------------------------------------------------------
+
+    // What happened during the most recent step(). Cleared at the top of the
+    // next one, so presentation must drain it per step rather than per frame.
+    Span<const Event> events() const { return state_.events.events(); }
 
     const content::ContentDb& content() const { return *content_; }
 
     // --- observation (rendering, UI, tests) ---
-    const Grid& grid() const { return grid_; }
-    const FlowField& flowField() const { return flow_; }
+    const Grid& grid() const { return state_.grid; }
+    const FlowField& flowField() const { return state_.flow; }
     // Views, not containers. Callers only ever iterate, subscript and size
     // these, so naming the underlying storage in the signature would have made
     // Phase 2's pool migration a breaking change at every call site. See Span.h.
-    Span<const Enemy> enemies() const { return enemies_.items(); }
-    Span<const Tower> towers() const { return towers_.items(); }
-    Span<const Projectile> projectiles() const { return projectiles_.items(); }
+    Span<const Enemy> enemies() const { return state_.enemies.items(); }
+    Span<const Tower> towers() const { return state_.towers.items(); }
+    Span<const Projectile> projectiles() const { return state_.projectiles.items(); }
 
-    // Whether a tower may be placed here, ignoring cost. Memoized on the hover
-    // cell and a grid version counter, so the placement preview can ask this
-    // every frame without running a BFS or allocating.
+    // The handle for the tower at `index` in the view above, so a caller that
+    // found a tower by looking can then address it. Handles are runtime
+    // addresses and stay out of saves and tie-breaks (ADR 0009); naming one is
+    // fine, and it is the only way to reach addTowerMod.
+    TowerId towerAt(std::size_t index) const { return state_.towers.handleAt(index); }
+
+    // The full answer the UI wants for a hover: whether this tower can go here
+    // and, if not, why. Const, so the placement preview cannot accidentally
+    // become a placement.
+    //
+    // The expensive half -- the BFS that proves the route survives -- is
+    // memoized on the hover cell and a grid version counter, so a stationary
+    // mouse costs two integer compares. The cheap half (gold, tile, type) is
+    // rechecked every call, because gold changes on every kill and memoizing on
+    // it would miss every time anyway.
+    PlacementResult previewPlacement(Cell cell, content::TowerDefId type = 0) const;
+
+    // Whether a tower may be placed here, ignoring cost and type.
     bool canPlaceAt(Cell cell) const;
+    bool canAfford(content::TowerDefId type = 0) const;
 
-    Cell spawn() const { return spawn_; }
-    Cell goal() const { return goal_; }
-    int gold() const { return gold_; }
-    int lives() const { return lives_; }
-    int waveNumber() const { return wave_; }
-    std::uint64_t tick() const { return tick_; }
+    Cell spawn() const { return state_.spawn; }
+    Cell goal() const { return state_.goal; }
+    int gold() const { return state_.gold; }
+    int lives() const { return state_.lives; }
+    int waveNumber() const { return state_.wave; }
+    std::uint64_t tick() const { return state_.tick; }
     // Ticks converted for display. The simulation itself never sees this.
-    float timeUntilNextWave() const { return static_cast<float>(waveTimer_) * config::kFixedDt; }
-    bool waveInProgress() const { return enemiesLeftToSpawn_ > 0 || !enemies_.empty(); }
-    GameState state() const { return state_; }
-    int enemiesLeaked() const { return leaked_; }
-    int enemiesKilled() const { return killed_; }
+    float timeUntilNextWave() const {
+        return static_cast<float>(state_.waveTimer) * config::kFixedDt;
+    }
+    bool waveInProgress() const { return state_.enemiesLeftToSpawn > 0 || !state_.enemies.empty(); }
+    GameState state() const { return state_.state; }
+    int enemiesLeaked() const { return state_.leaked; }
+    int enemiesKilled() const { return state_.killed; }
 
-    // The world's canonical byte stream: every piece of state that a
-    // reproducible run depends on, in a fixed order, written as explicit
-    // little-endian integers.
-    //
-    // It lives here rather than in Hash.h on purpose. A serializer kept in
-    // another file is a serializer that gets a field added behind its back, and
-    // a field missing from this function is a divergence the hash cannot see.
-    // Adding a member to World means adding a line here.
-    //
-    // Sink supplies u8/u32/u64/i32/f32. Templated so the same field order
-    // serves the determinism hash now and the Phase 7 save writer later -- two
-    // separate implementations of one format would drift.
-    //
-    // Field order IS the format. Appending is safe; reordering or removing
-    // changes every hash, which is what simVersion will exist to notice.
+    // The canonical byte stream lives on WorldState, next to the fields it
+    // writes. This forwards so that Hash.h and the Phase 7 save writer do not
+    // have to know the state is a separate struct.
     template <typename Sink>
     void serialize(Sink& out) const {
-        // Which ruleset this run was played under, first.
-        //
-        // Balance is now data, so two runs with the same seed and the same
-        // commands are only the same run if they were played against the same
-        // numbers. Without this the hash would call a rebalanced replay
-        // identical right up to the tick the change first mattered. Hot reload
-        // does exactly that on purpose; a stale save file does it by accident.
-        out.u64(contentFingerprint_);
-
-        out.u64(tick_);
-        out.i32(gold_);
-        out.i32(lives_);
-        out.i32(wave_);
-        out.i32(leaked_);
-        out.i32(killed_);
-        out.u32(static_cast<std::uint32_t>(state_));
-        out.u32(enemies_.nextSequence());
-        out.u32(towers_.nextSequence());
-        out.u32(projectiles_.nextSequence());
-
-        // Derived from the grid dimensions today, so hashing the dimensions
-        // already covers them. Written explicitly anyway: the moment a level
-        // loader sets a spawn or goal that is not a function of the size, this
-        // stops being true, and goal_ drives the flow field that every enemy
-        // steers by.
-        out.i32(spawn_.x);
-        out.i32(spawn_.y);
-        out.i32(goal_.x);
-        out.i32(goal_.y);
-
-        // Wave director. Invisible to the player and decisive for the run.
-        out.i32(enemiesLeftToSpawn_);
-        // How far into this wave's composition the spawner has got. Decisive
-        // once a wave mixes enemy types, and invisible in a wave that does not.
-        out.i32(spawnedInWave_);
-        out.u32(spawnTimer_);
-        out.u32(waveTimer_);
-        out.f32(waveHealthScale_);
-        out.f32(waveSpeedScale_);
-
-        out.u32(static_cast<std::uint32_t>(enemies_.size()));
-        for (const Enemy* p : detail::byId<Enemy>(enemies())) {
-            const Enemy& enemy = *p;
-            out.u32(enemy.id);
-            out.f32(enemy.position.x);
-            out.f32(enemy.position.y);
-            out.f32(enemy.health);
-            out.f32(enemy.maxHealth);
-            out.f32(enemy.speed);
-            out.u32(enemy.type);
-        }
-
-        out.u32(static_cast<std::uint32_t>(towers_.size()));
-        for (const Tower* p : detail::byId<Tower>(towers())) {
-            const Tower& tower = *p;
-            out.u32(tower.id);
-            out.i32(tower.cell.x);
-            out.i32(tower.cell.y);
-            // The type, where range and damage used to be written. Those are
-            // no longer state -- they live in the database, which the
-            // fingerprint above covers.
-            out.u32(tower.type);
-            out.u32(tower.cooldown);
-            // aim is rendering-only, but it is derived from simulation state
-            // and costs two words to cover. A field left out of the hash is a
-            // field that can diverge silently.
-            out.f32(tower.aim.x);
-            out.f32(tower.aim.y);
-        }
-
-        out.u32(static_cast<std::uint32_t>(projectiles_.size()));
-        for (const Projectile* p : detail::byId<Projectile>(projectiles())) {
-            const Projectile& shot = *p;
-            out.f32(shot.position.x);
-            out.f32(shot.position.y);
-            out.f32(shot.velocity.x);
-            out.f32(shot.velocity.y);
-            out.u32(shot.id);
-            out.u32(shot.targetId);
-            out.u32(shot.type);
-            out.f32(shot.damage);
-            out.u32(shot.age);
-        }
-
-        // The grid is state, not level constants: towers change it as they are
-        // built, and the flow field is derived from it.
-        out.i32(grid_.width());
-        out.i32(grid_.height());
-        for (int y = 0; y < grid_.height(); ++y) {
-            for (int x = 0; x < grid_.width(); ++x) {
-                out.u8(static_cast<std::uint8_t>(grid_.at({x, y})));
-            }
-        }
-
-        // flow_ is deliberately absent. It is a pure function of (grid_, goal_),
-        // both of which are written above, and it is rebuilt on the only path
-        // that mutates the grid. So it cannot diverge independently -- this is
-        // the one exception to the rule stated at the top of this function.
-        //
-        // It does matter for Phase 7: a save writer using this stream will not
-        // persist the distance cache, so the loader must call
-        // flow_.build(grid_, goal_) after restoring the grid, or every enemy
-        // stands still.
-
-        // Every stream's position, including the ones nothing has drawn from
-        // yet. Two worlds that look identical but sit at different points in a
-        // stream are different runs -- they diverge on the next draw.
-        for (std::size_t i = 0; i < rng_.size(); ++i) {
-            out.u64(rng_.at(i).state());
-        }
+        state_.serialize(out);
     }
 
     // 64-bit fingerprint of the entire simulation state. Two runs that agree on
@@ -327,77 +138,17 @@ public:
     std::uint64_t checksum() const;
 
 private:
-    void stepWaveDirector();
-    void stepEnemies();
-    void stepTowers();
-    void stepProjectiles();
-
-    void spawnEnemy();
-    void startNextWave();
-    EnemyId findTarget(const Tower& tower) const;
-
-    // Which enemy type the nth spawn of the current wave is. Authored waves
-    // walk their composition; the endless progression has one group.
-    content::EnemyDefId spawnTypeAt(int indexInWave) const;
-    int enemiesInWave(int wave) const;
-
     const content::ContentDb* content_;
-    // Cached rather than recomputed, because checksum() is called every tick by
-    // the determinism trace and the database does not change under a running
-    // world -- a hot reload builds a new one.
-    std::uint64_t contentFingerprint_ = 0;
+    WorldState state_;
 
-    Grid grid_;
-    FlowField flow_;
-    Cell spawn_{};
-    Cell goal_{};
-
-    // Each pool owns its own monotonic id sequence, rather than the three of
-    // them drawing from one shared counter. Shared meant that adding ids to
-    // projectiles renumbered every enemy and tower, because they came out of the
-    // same sequence -- a format change in one entity type silently rewriting the
-    // identities of the others.
-    Pool<Enemy, EnemyTag> enemies_;
-    Pool<Tower, TowerTag> towers_;
-    Pool<Projectile, ProjectileTag> projectiles_;
-
-    // Rebuilt from enemies_ once per tick, before the towers pick targets.
-    SpatialIndex<Enemy> enemyIndex_;
-
-    // Scratch, reserved once and reused. step() must not allocate.
-    std::vector<EnemyId> enemyRemovals_;
-    std::vector<ProjectileId> projectileRemovals_;
-
-    // Bumped whenever a tower changes the grid, which is the only thing that can
-    // change a placement answer. The preview memo is keyed on it.
-    std::uint32_t gridVersion_ = 0;
+    // The placement preview memo. Not simulation state -- it is a cache of a
+    // pure function of (cell, grid) -- so it lives here rather than in
+    // WorldState, and is therefore deliberately outside the hash.
     mutable PlacementQuery placement_;
     mutable Cell placementCell_{-1, -1};
     mutable std::uint32_t placementVersion_ = 0;
     mutable bool placementResult_ = false;
     mutable bool placementCached_ = false;
-
-    RngStreams rng_;
-
-    // The simulation clock. Everything time-dependent counts ticks, not
-    // seconds, so a run is reproducible by construction rather than by
-    // convention.
-    std::uint64_t tick_ = 0;
-
-    int gold_ = 0;
-    int lives_ = 0;
-    int wave_ = 0;
-    // Compounding difficulty for the wave in progress, recomputed only when a
-    // wave starts. See startNextWave().
-    float waveHealthScale_ = 1.0f;
-    float waveSpeedScale_ = 1.0f;
-    int enemiesLeftToSpawn_ = 0;
-    int spawnedInWave_ = 0;
-    std::uint32_t spawnTimer_ = 0;
-    std::uint32_t waveTimer_ = 0;
-    int leaked_ = 0;
-    int killed_ = 0;
-    GameState state_ = GameState::Playing;
 };
 
 }  // namespace ktd

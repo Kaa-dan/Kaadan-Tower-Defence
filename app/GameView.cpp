@@ -69,7 +69,7 @@ Cell GameView::pointerToCell(Vec2 pointer, const InputState& input) const {
 }
 
 void GameView::draw(Renderer& renderer, const World& world, Cell hovered,
-                    content::TowerDefId selected, bool paused) const {
+                    content::TowerDefId selected) const {
     const Grid& grid = world.grid();
 
     // --- board -------------------------------------------------------------
@@ -105,11 +105,13 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered,
 
     // --- placement preview -------------------------------------------------
     if (grid.inBounds(hovered)) {
-        // world.canPlaceAt rather than the free canPlaceTower: this runs every
-        // frame, and the World version memoizes on the hover cell and a grid
-        // version so a stationary mouse costs two integer compares instead of a
-        // Grid copy and a BFS.
-        const bool placeable = world.canAfford(selected) && world.canPlaceAt(hovered);
+        // previewPlacement rather than the free canPlaceTower: this runs every
+        // frame, and the World version memoizes the BFS on the hover cell and a
+        // grid version so a stationary mouse costs two integer compares instead
+        // of a Grid copy and a full search. It is also the exact test the
+        // command queue will apply a tick later, so the preview cannot promise
+        // something the placement then refuses.
+        const bool placeable = world.previewPlacement(hovered, selected) == PlacementResult::Placed;
         renderer.drawQuad(Grid::centerOf(hovered), {0.94f, 0.94f},
                           placeable ? kHoverOk : kHoverBad);
         if (placeable) {
@@ -153,7 +155,10 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered,
     if (world.state() == GameState::Defeat) {
         renderer.drawQuad({(left_ + right_) * 0.5f, (bottom_ + top_) * 0.5f},
                           {right_ - left_, top_ - bottom_}, {0.60f, 0.10f, 0.10f, 0.35f});
-    } else if (paused) {
+    } else if (world.state() == GameState::Victory) {
+        renderer.drawQuad({(left_ + right_) * 0.5f, (bottom_ + top_) * 0.5f},
+                          {right_ - left_, top_ - bottom_}, {0.20f, 0.55f, 0.25f, 0.35f});
+    } else if (world.state() == GameState::Paused) {
         renderer.drawQuad({(left_ + right_) * 0.5f, (bottom_ + top_) * 0.5f},
                           {right_ - left_, top_ - bottom_}, {0.0f, 0.0f, 0.0f, 0.35f});
     }

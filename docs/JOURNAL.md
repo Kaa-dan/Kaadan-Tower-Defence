@@ -8,6 +8,62 @@ will matter in six months belongs in an ADR, not here.
 
 ---
 
+## 2026-08-26 — Phase 4: the tick is a list, damage is a formula, intent is a queue
+
+`World` is 156 lines of header and 160 of source, and none of it is a rule. The fields moved to
+`WorldState` (a plain struct, no invariants) and the rules moved to free functions over a
+`SimContext` (`game/Systems.h`). `World::step()` is now nine lines that name the systems in
+order, and the order is the design — an enemy that moved after the towers looked for it would be
+shot at where it used to be.
+
+**What went in.** `Commands.h`, `Events.h`, `Stats.h`, `Status.h`, `Damage.h`, `Entity.h`,
+`WorldState.h`, `Systems.h/.cpp`; damage types, status defs, armor and resistance tables in the
+content schema; `content/combat.ktd`; game speed, pause and victory in `app/`. 92 tests, green
+on `core` and green under ASan+UBSan.
+
+**The damage order was the interesting part** ([ADR 0011](decisions/0011-damage-order-is-canonical.md)).
+Two orderings looked incidental and were not. Status multipliers walked the enemy's slot array,
+which is the order the debuffs happened to land; hits subtracted in pool order, which is a
+function of destruction history. Float arithmetic is not associative, so both were silently
+making damage depend on things that are not damage. Ascending `StatusDefId` fixes the first; a
+canonically sorted damage queue fixes the second. `damage_order_is_independent_of_buff_application_order`
+checks all six orderings of three effects with `std::bit_cast` equality — a tolerance would have
+passed on exactly the difference the rule exists to prevent, which would have made the test look
+like evidence while proving nothing.
+
+**Commands in, events out** ([ADR 0012](decisions/0012-commands-in-events-out.md)). The UI no
+longer calls `placeTower`; it previews, enqueues, and learns the outcome from an event. The
+replay log is now the command stream plus tick numbers and nothing else, which is most of Phase
+7 already done. Events are cleared at the top of every `step()` — one tick's worth, never
+accumulating — because an accumulating queue would make the checksum depend on how often the
+caller drained it, which is a frame-rate dependency inside the determinism trace.
+
+**Victory is a property of the content, not a flag.** A level with authored waves and no endless
+rule can be won; one with an endless rule never can. The shipped level declares an endless rule,
+so adding `GameState::Victory` changed nothing about the game as it stands — and a campaign level
+is now a file rather than a code change.
+
+**Pause is deliberately not a command.** `step()` returns before the tick counter moves, so a
+paused tick is a tick that never happened and pausing cannot change a run.
+`pause_stops_the_clock_without_changing_the_run` plays 100 ticks straight against 40 + 500
+paused + 60 and checks the two checksums agree.
+
+**ASan caught a test bug, not a simulation bug.** `World endless(makeFixture().db)` binds a
+reference into a temporary `Fixture` that dies at the end of the full expression. It passed
+cleanly on `core` and aborted immediately under the sanitizer, which is the argument for running
+both.
+
+**The hash moved once, on purpose**, to `0xC420722146B89A12`. Three causes, all intended:
+entities gained `previousPosition` (Phase 6 needs it), towers gained a serialized mod set,
+projectiles gained a damage type and a source, and the content fingerprint moved because
+`combat.ktd` exists. The scripted scenario is unchanged and still builds only tower type 0
+against a grunt with no armor and no resistances, so the underlying run is the same run.
+
+**What is next.** Phase 5, the renderer — and its design review has still only had one pass. The
+`⚠` in the ledger is worth acting on before starting.
+
+---
+
 ## 2026-08-24 — Phase 3: balance is data, and F5 replays the run against it
 
 `Config.h` is down to three declarations: the tick rate, `kFixedDt`, and `ticksFromSeconds`.
