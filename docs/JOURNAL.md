@@ -8,6 +8,75 @@ will matter in six months belongs in an ADR, not here.
 
 ---
 
+## 2026-08-26 — Phase 5, the GL half: one draw path, and the board stops moving
+
+The render-core half landed earlier today. This session wrote the executor.
+
+**The vertex format changed and that is what pulled the rest in.** `{x, y, u, v, rgba}` — 20
+bytes, down from six floats, with room for a texture coordinate that did not exist anywhere in
+the renderer before: not in the API, not in the shader, not in the loader's entry-point list.
+The colour pack is a float-to-integer narrowing, so it clamps first. That is not tidiness: a
+value that does not fit the destination is undefined behaviour, and tints here are *computed*
+— a health fraction is one zero `maxHealth` away from an infinity. `packRgba` folds NaN to zero
+by ordering the clamp so the low-bound comparison fails, and
+`color_pack_clamps_out_of_range_channels` states all of it. Verified by breaking it: dropping
+the clamp fails that test and nothing else.
+
+**`drawQuad` and `drawLine` are no longer virtual.** Texture id 0 is a 1x1 opaque white texel
+every backend makes at init, so an untextured quad *is* a textured quad tinted, and there is one
+virtual draw path instead of three. `drawLine` fell out as a rotated quad — which means the
+rotation path is now exercised by every route hint the game draws, not only by tower barrels.
+
+**Rotation takes a direction, not an angle** ([ADR 0015](decisions/0015-sprites-take-a-direction-not-an-angle.md)).
+Written up rather than left in the spec, because the reason is not "vectors are nicer": an angle
+API creates a caller that wants trig in `game/Math.h`, where `purity_determinism` bans it and
+where Phase 1 declined to add it with no caller asking. `{1, 0}` is bit-exactly the identity, and
+the test asks for that with a zero tolerance rather than `CHECK_EQ`, because `-Wfloat-equal` is
+on and is right to be.
+
+**The board stopped being resubmitted 384 times a frame.** It is baked into its own VBO and
+re-uploaded only when `gridVersion` moves, which is when a tower changes a tile. It draws before
+the batch's first span, in that span's camera — its place in the layer order is explicit, because
+otherwise "sorted by layer" would have quietly meant "sorted by layer, except the tiles". 384
+quads today; the same code is 40,000 on a 200x200 level.
+
+**Two shader leaks are gone, and not by remembering to free things.** Every GL object is a
+move-only handle that deletes itself, so the three early returns in `init()` are correct by
+construction. The one the first design pass missed — a link failure returning without deleting
+either shader *or* the program — was never fixed as such; it stopped existing.
+
+**`glDebugMessageCallback` is resolved separately and tolerates null**, per the rule Phase 5's
+review wrote down. On this machine it almost certainly resolves to nothing: macOS caps at GL 4.1
+and this is 4.3. The renderer starts anyway, which was the entire point.
+
+**Surprise:** the first cut of the RAII handles reached for
+`reinterpret_cast<GLuint*>(&handle)` so `glGenBuffers` could write into one in place. That is a
+lie about the type dressed up as an optimisation, sitting inside the abstraction whose only job
+is to be trustworthy. Replaced with `genBuffer()`/`genVertexArray()`/`genTexture()` free
+functions that fill a local and return an owning handle — no window in which a raw name is live,
+and no cast.
+
+**Verified:** 104 tests green on `core` (was 101), green under ASan+UBSan, `dev` builds warning
+clean, format clean, and the app runs for four seconds with nothing on stderr. Core configure is
+still 0.7s.
+
+**What I could not verify: whether it looks right.** Screen capture and window-title automation
+are both blocked by macOS permissions on this machine, so "the game runs and looks correct" is
+still the owner's acceptance criterion and is still unticked. Debug builds now put draw calls and
+quad count in the window title, which is where a batching regression gets noticed.
+
+**Not done, and blocked on the owner:** `loadTexture`. There is still no image decoder
+([ADR 0014](decisions/0014-image-decoding.md), *proposed*). Everything above it is built and
+runs against in-memory pixel buffers — `createTexture` takes RGBA8 and the atlas returns
+placements — but with no decoder and no art, the game on screen is still coloured quads. The
+sprite pipeline is finished; the sprites are not in it.
+
+**Next:** the owner's call on `stb_image.h`, then art through `loadTexture` and the atlas, which
+is a short session. Then Phase 6 — and its design has still had only one pass, which Phase 5
+just demonstrated is not enough.
+
+---
+
 ## 2026-08-26 — Phase 5 design review, and the split it forced
 
 Re-ran the renderer design review the roadmap had been flagging since Phase 2. It was supposed

@@ -44,17 +44,24 @@ own: no `backends/` include, no SDL, no GL.
 
 Runnable under `ctest --preset core` after the split:
 
-- [ ] `atlas_packer_places_without_overlap` — over randomized sprite sets.
-- [ ] `atlas_reserves_padding_between_sprites` — 1px, or pixel art bleeds at non-integer zoom.
-- [ ] `atlas_packer_reports_failure_when_full` — ⟳ new. A packer that silently drops the sprite
+- [x] `atlas_packer_places_without_overlap` — over randomized sprite sets.
+- [x] `atlas_reserves_padding_between_sprites` — 1px, or pixel art bleeds at non-integer zoom.
+- [x] `atlas_packer_reports_failure_when_full` — ⟳ new. A packer that silently drops the sprite
       that did not fit renders a blank tower and no error, which is a bug that looks like an art
       problem. It must fail loudly.
-- [ ] `sort_key_orders_by_layer_then_texture` — the batching property.
-- [ ] `sort_within_camera_span_never_reorders_across_it` — ⟳ new, see correction 3.
-- [ ] `draw_calls_stay_under_20_for_a_full_frame` — measured via a stat counter on the batch
+- [x] `sort_key_orders_by_layer_then_texture` — the batching property.
+- [x] `sort_within_camera_span_never_reorders_across_it` — ⟳ new, see correction 3.
+- [x] `draw_calls_stay_under_20_for_a_full_frame` — measured via a stat counter on the batch
       state machine, driven by a **recorded command list from a populated board**, not by a live
       GL context.
-- [ ] `camera_change_mid_frame_flushes_batch` — proves world + HUD in one frame works.
+- [x] `camera_change_mid_frame_flushes_batch` — proves world + HUD in one frame works.
+- [x] `color_pack_clamps_out_of_range_channels` — added: the packed vertex colour is a
+      float-to-int narrowing over *computed* tints, which is undefined behaviour the moment one
+      goes out of range.
+- [x] `sprite_forward_rotates_without_trig` — added, see [ADR 0015](../decisions/0015-sprites-take-a-direction-not-an-angle.md).
+      `{1, 0}` must be bit-exactly the identity or axis-aligned tiles seam.
+- [x] `orthographic_maps_camera_corners_to_clip_space` — added: the projection moved out of the
+      backend, so it became something a test can state.
 - [ ] Manual (owner): the game runs and looks correct. **I cannot verify this** — sprites
       placed, oriented, and layered correctly is a judgment only the owner can make.
 

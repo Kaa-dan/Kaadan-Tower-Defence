@@ -14,7 +14,7 @@ Start a phase with `/phase <n>`. Check state with `/status`.
 | [2](phase-02-entity-storage.md) | Entity storage: handles, pools, spatial index | 3 d | ✅ done (`phase-02/entity-storage`, PR #4) |
 | [3](phase-03-content.md) | Data-driven content + hot reload | 3 d | ✅ done (`phase-03/content`, PR #5) |
 | [4](phase-04-systems.md) | Systems split, damage pipeline, event queue | 2 d | ✅ done (branch pending) |
-| [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 5-6 d | 🔨 **in progress**, design re-reviewed |
+| [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 5-6 d | 🔨 engine done; **blocked on the decoder call** |
 | [6](phase-06-presentation.md) | Text, input, filesystem, interpolation | 4 d | ⬜ ⚠️ |
 | [7](phase-07-persistence.md) | Save / replay / settings | 2 d | ⬜ |
 | [8](phase-08-ui-audio.md) | UI framework, audio, scenes | 5-7 d | ⬜ |
@@ -62,8 +62,16 @@ Two dependencies are load-bearing:
   which would have refused to start the renderer on every 3.3 driver.
 - **Decide on `stb_image.h`** ([ADR 0014](../decisions/0014-image-decoding.md), status
   *proposed*). Phase 5 needs an image decoder and `CLAUDE.md` opens with "One dependency:
-  SDL3". The recommendation is to vendor the header and edit that line. Not blocking — the
-  whole phase except `loadTexture`'s file path builds against in-memory pixel buffers.
+  SDL3". The recommendation is to vendor the header and edit that line. **Now the one thing
+  holding Phase 5 open.** The sprite pipeline is finished and runs — `createTexture` takes
+  RGBA8, `drawSprite` takes a UV rect and a direction, the atlas returns placements — but with
+  no decoder and no art the game on screen is still coloured quads. Everything except
+  `loadTexture`'s file path is built and tested against in-memory pixel buffers.
+- **Nobody has looked at the new renderer.** The GL half rewrote the vertex format, the draw
+  path, the batching and the board upload. It runs clean, but screen capture is blocked by
+  macOS permissions on this machine, so *"the game runs and looks correct"* is unverified and
+  is Phase 5's last unticked criterion. Debug builds put draw calls and quad count in the
+  window title.
 - **Re-baselined the determinism hash.** Phase 2 moved the golden checksum to
   `0x8D8C026A6A51F571` and regenerated `tests/data/reference_trace.tsv`, on purpose and in one
   step: the goal-tunneling fix is a real gameplay change (enemies now leak reliably, so an

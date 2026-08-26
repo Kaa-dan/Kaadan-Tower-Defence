@@ -10,6 +10,7 @@ set(KTD_TEST_SOURCES
     test_math.cpp
     test_path.cpp
     test_pool.cpp
+    test_render.cpp
     test_rng.cpp
     test_spatial.cpp
     test_storage.cpp
