@@ -251,8 +251,9 @@ void waveDirector(SimContext& ctx) {
 
 void statuses(SimContext& ctx) {
     WorldState& s = ctx.state;
-    for (std::size_t i = 0; i < s.enemies.size(); ++i) {
-        Enemy& enemy = s.enemies.items()[i];
+    const Span<Enemy> living = s.enemies.items();
+    for (std::size_t i = 0; i < living.size(); ++i) {
+        Enemy& enemy = living[i];
         const EnemyId handle = s.enemies.handleAt(i);
 
         // Ascending def id, not slot order: the damage-over-time events are
@@ -338,8 +339,14 @@ void enemies(SimContext& ctx) {
     // swap-and-pop an entity the loop has not visited yet into a slot it has
     // already passed, and that enemy would leak without costing a life.
     s.enemyRemovals.clear();
-    for (std::size_t i = 0; i < s.enemies.size(); ++i) {
-        const Enemy& enemy = s.enemies.items()[i];
+    // The Span is bound to a named local rather than subscripted inline.
+    // items() returns by value, and GCC's -Wdangling-reference cannot see that
+    // the reference it yields points into the pool rather than into the
+    // temporary -- it is a false positive, but -Werror makes it a build break
+    // on the Linux leg, and a named local is clearer anyway.
+    const Span<const Enemy> living = s.enemies.items();
+    for (std::size_t i = 0; i < living.size(); ++i) {
+        const Enemy& enemy = living[i];
         if (Grid::cellOf(enemy.position) != s.goal) {
             continue;
         }
@@ -365,8 +372,9 @@ void index(SimContext& ctx) {
 
 void towers(SimContext& ctx) {
     WorldState& s = ctx.state;
-    for (std::size_t i = 0; i < s.towers.size(); ++i) {
-        Tower& tower = s.towers.items()[i];
+    const Span<Tower> standing = s.towers.items();
+    for (std::size_t i = 0; i < standing.size(); ++i) {
+        Tower& tower = standing[i];
         // Every number this tower fights with is read here, on the tick it
         // fires. That is what makes a hot reload reach towers already standing
         // on the board rather than only the ones built after it.
@@ -425,8 +433,9 @@ void projectiles(SimContext& ctx) {
     WorldState& s = ctx.state;
     s.projectileRemovals.clear();
 
-    for (std::size_t i = 0; i < s.projectiles.size(); ++i) {
-        Projectile& shot = s.projectiles.items()[i];
+    const Span<Projectile> flying = s.projectiles.items();
+    for (std::size_t i = 0; i < flying.size(); ++i) {
+        Projectile& shot = flying[i];
         const content::ProjectileDef& def = ctx.content.projectile(shot.type);
         ++shot.age;
         shot.previousPosition = shot.position;

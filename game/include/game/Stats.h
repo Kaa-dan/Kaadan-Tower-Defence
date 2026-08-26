@@ -90,23 +90,37 @@ struct TowerStats {
 inline TowerStats resolveStats(TowerStats base, const ModSet& set) {
     std::array<StatMod, kModSlots> ordered = set.mods;
     const std::size_t live = std::min<std::size_t>(set.count, kModSlots);
-    // stable_sort, not sort: the purity guard bans std::sort, because the three
-    // standard libraries pick different introsort pivots.
-    std::stable_sort(ordered.begin(), ordered.begin() + static_cast<std::ptrdiff_t>(live),
-                     [](const StatMod& a, const StatMod& b) {
-                         if (a.stat != b.stat) {
-                             return a.stat < b.stat;
-                         }
-                         if (a.op != b.op) {
-                             return a.op < b.op;
-                         }
-                         // Bit comparison, not value comparison: two mods with
-                         // the same numeric value are interchangeable, and
-                         // comparing bits gives a total order over the NaNs a
-                         // corrupt save could contain.
-                         return std::bit_cast<std::uint32_t>(a.value) <
-                                std::bit_cast<std::uint32_t>(b.value);
-                     });
+
+    // Insertion sort, written out, over at most eight elements.
+    //
+    // std::sort is banned in game/ outright -- the three standard libraries
+    // pick different introsort pivots. std::stable_sort would be correct, but
+    // this runs inside step() and MSVC's takes a heap buffer past its own
+    // insertion-sort threshold; the same trap DamageQueue::sortCanonically
+    // documents. Eight elements is small enough that spelling it out costs
+    // nothing and removes the question entirely.
+    const auto before = [](const StatMod& a, const StatMod& b) {
+        if (a.stat != b.stat) {
+            return a.stat < b.stat;
+        }
+        if (a.op != b.op) {
+            return a.op < b.op;
+        }
+        // Bit comparison, not value comparison: two mods with the same numeric
+        // value are interchangeable, and comparing bits gives a total order
+        // over the NaNs a corrupt save could contain.
+        return std::bit_cast<std::uint32_t>(a.value) < std::bit_cast<std::uint32_t>(b.value);
+    };
+    for (std::size_t i = 1; i < live; ++i) {
+        const StatMod key = ordered[i];
+        std::size_t j = i;
+        // Strictly-less, so equal elements keep their relative order: stable.
+        while (j > 0 && before(key, ordered[j - 1])) {
+            ordered[j] = ordered[j - 1];
+            --j;
+        }
+        ordered[j] = key;
+    }
 
     std::array<float, kStatCount> flat{};
     std::array<float, kStatCount> percent{};

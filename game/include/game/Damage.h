@@ -15,7 +15,6 @@
 #include "game/Status.h"
 #include "game/content/Database.h"
 
-#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <vector>
@@ -91,46 +90,95 @@ inline float resolveDamage(const DamageEvent& event, const Enemy& enemy,
 // `(h - b) - a` are not the same float, so the enemy's remaining health, and
 // therefore whether it dies this tick, would depend on storage layout.
 //
-// Sorting on (targetId, sourceId, kind, amount bits) is a total order over
-// stable identities, so the drain order is the same on every machine and after
-// every refactor of how entities are stored.
+// Sorting on (targetId, sourceId, kind, type, amount bits) is a total order
+// over stable identities, so the drain order is the same on every machine and
+// after every refactor of how entities are stored.
 class DamageQueue {
 public:
     void clear() { events_.clear(); }
-    void reserve(std::size_t n) { events_.reserve(n); }
+
+    void reserve(std::size_t n) {
+        events_.reserve(n);
+        scratch_.reserve(n);
+    }
+
     void push(const DamageEvent& event) { events_.push_back(event); }
 
     bool empty() const { return events_.empty(); }
     std::size_t size() const { return events_.size(); }
 
+    // The canonical order. A total order over stable identities: no handle, no
+    // array position, nothing that destruction history can move.
+    static bool before(const DamageEvent& a, const DamageEvent& b) {
+        if (a.targetId != b.targetId) {
+            return a.targetId < b.targetId;
+        }
+        if (a.sourceId != b.sourceId) {
+            return a.sourceId < b.sourceId;
+        }
+        if (a.kind != b.kind) {
+            return a.kind < b.kind;
+        }
+        if (a.type != b.type) {
+            return a.type < b.type;
+        }
+        // Bit comparison, not value comparison: it is a total order over the
+        // NaNs a corrupt save could contain, where `<` on floats is not.
+        return std::bit_cast<std::uint32_t>(a.amount) < std::bit_cast<std::uint32_t>(b.amount);
+    }
+
     // Puts the queue in canonical order. Called once, immediately before the
     // drain.
+    //
+    // Hand-written rather than std::stable_sort, and the reason is allocation
+    // rather than determinism.
+    //
+    // std::sort is banned in game/ outright -- the three standard libraries
+    // pick different introsort pivots and order equal elements differently.
+    // std::stable_sort would be correct here, but MSVC's implementation takes a
+    // temporary buffer from the heap for any range past its insertion-sort
+    // threshold, and this runs inside step(), which must not allocate. That is
+    // not a portability footnote: `steady_state_step_allocates_nothing` caught
+    // it on the Windows CI leg while macOS and its stack-buffered libc++ passed
+    // clean.
+    //
+    // Bottom-up merge sort over a scratch buffer reserved once in the
+    // constructor. Stable by construction -- ties take the left run first --
+    // O(n log n), and identical on every platform because every comparison and
+    // every merge step is written out here.
     void sortCanonically() {
-        // stable_sort, not sort: std::sort is banned in game/ for picking
-        // different pivots per standard library.
-        std::stable_sort(events_.begin(), events_.end(),
-                         [](const DamageEvent& a, const DamageEvent& b) {
-                             if (a.targetId != b.targetId) {
-                                 return a.targetId < b.targetId;
-                             }
-                             if (a.sourceId != b.sourceId) {
-                                 return a.sourceId < b.sourceId;
-                             }
-                             if (a.kind != b.kind) {
-                                 return a.kind < b.kind;
-                             }
-                             if (a.type != b.type) {
-                                 return a.type < b.type;
-                             }
-                             return std::bit_cast<std::uint32_t>(a.amount) <
-                                    std::bit_cast<std::uint32_t>(b.amount);
-                         });
+        const std::size_t count = events_.size();
+        if (count < 2) {
+            return;
+        }
+        scratch_.resize(count);
+
+        for (std::size_t width = 1; width < count; width *= 2) {
+            for (std::size_t start = 0; start < count; start += width * 2) {
+                const std::size_t middle = start + width < count ? start + width : count;
+                const std::size_t end = start + width * 2 < count ? start + width * 2 : count;
+
+                std::size_t left = start;
+                std::size_t right = middle;
+                for (std::size_t out = start; out < end; ++out) {
+                    // `!before(right, left)` rather than `before(left, right)`:
+                    // on a tie the left run wins, which is what makes this
+                    // stable.
+                    const bool takeLeft =
+                        left < middle && (right >= end || !before(events_[right], events_[left]));
+                    scratch_[out] = takeLeft ? events_[left++] : events_[right++];
+                }
+            }
+            events_.swap(scratch_);
+        }
     }
 
     Span<const DamageEvent> events() const { return Span<const DamageEvent>(events_); }
 
 private:
     std::vector<DamageEvent> events_;
+    // Reserved alongside events_ and reused, never freed between ticks.
+    std::vector<DamageEvent> scratch_;
 };
 
 }  // namespace ktd
