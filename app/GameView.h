@@ -23,8 +23,8 @@ public:
     // `selected` is the tower type the player is about to build: the preview
     // shows that type's range and affordability, so the two data-driven types
     // are distinguishable before anything is placed.
-    void draw(Renderer& renderer, const World& world, Cell hovered, content::TowerDefId selected,
-              bool paused) const;
+    void draw(Renderer& renderer, const World& world, Cell hovered,
+              content::TowerDefId selected) const;
 
 private:
     float left_ = 0.0f;

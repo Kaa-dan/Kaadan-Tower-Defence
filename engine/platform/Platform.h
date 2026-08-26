@@ -25,6 +25,14 @@ struct InputState {
     // selection did not change this frame.
     int towerSelection = -1;
 
+    // How many simulation ticks to run per real-time tick: 1, 2 or 3, chosen
+    // with the F1-F3 keys. -1 means the choice did not change this frame.
+    //
+    // Fast-forward multiplies steps rather than lengthening dt, so the
+    // simulation still only ever advances in exact 1/60s increments and a run
+    // played at 3x is bit-identical to the same run played at 1x.
+    int speedSelection = -1;
+
     int windowWidth = 0;
     int windowHeight = 0;
     float pixelScale = 1.0f;  // 2.0 on a retina display

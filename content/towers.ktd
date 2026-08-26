@@ -25,6 +25,7 @@ range = 3.2
 damage = 10.0
 reload_ticks = 38
 projectile = "bolt"
+damage_type = "physical"
 
 # The second type exists to prove the data path carries behaviour, not just
 # numbers: longer reach and a much harder hit, paid for in cost and reload.
@@ -37,3 +38,8 @@ range = 4.5
 damage = 34.0
 reload_ticks = 105
 projectile = "shell"
+damage_type = "fire"
+# Proof that the data path carries behaviour and not only numbers: the cannon
+# sets its target on fire, and how burn stacks is a line in combat.ktd rather
+# than a branch in the damage system.
+applies_status = "burn"

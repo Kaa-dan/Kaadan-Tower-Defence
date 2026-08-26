@@ -33,7 +33,8 @@ inline std::string readWholeFile(const std::string& path) {
 // directory ctest happened to be invoked from.
 inline const ktd::content::ContentDb& shippedContent() {
     static const ktd::content::ContentDb db = [] {
-        static const char* const kFiles[] = {"level.ktd", "towers.ktd", "enemies.ktd", "waves.ktd"};
+        static const char* const kFiles[] = {"level.ktd", "combat.ktd", "towers.ktd", "enemies.ktd",
+                                             "waves.ktd"};
         std::vector<std::string> names;
         std::vector<std::string> texts;
         for (const char* file : kFiles) {

@@ -10,6 +10,8 @@ health = 24.0
 speed = 1.6
 radius = 0.22
 bounty = 8
+# No armor and no resistances: the grunt is the baseline every other enemy is
+# read against, and the shipped run's damage numbers are unchanged by Phase 4.
 
 # Faster and frailer. Nothing spawns these yet -- the endless progression sends
 # grunts -- but a wave table can, and mixed speeds are what make two enemies
@@ -20,3 +22,8 @@ health = 14.0
 speed = 2.6
 radius = 0.18
 bounty = 6
+# Thin-skinned but fireproof, so the resistance table is exercised by the
+# shipped content rather than only by a test fixture. Untuned, like everything
+# else about the runner -- nothing spawns one yet.
+resists = ["fire"]
+resist_values = [0.5]

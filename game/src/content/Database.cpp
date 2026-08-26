@@ -230,6 +230,34 @@ ProjectileDefId ContentDb::findProjectile(std::string_view id) const {
     return kNoDef;
 }
 
+DamageTypeId ContentDb::findDamageType(std::string_view id) const {
+    for (std::size_t i = 0; i < damageTypes_.size(); ++i) {
+        if (damageTypes_[i].id == id) {
+            return static_cast<DamageTypeId>(i);
+        }
+    }
+    return kNoDef;
+}
+
+StatusDefId ContentDb::findStatus(std::string_view id) const {
+    for (std::size_t i = 0; i < statuses_.size(); ++i) {
+        if (statuses_[i].id == id) {
+            return static_cast<StatusDefId>(i);
+        }
+    }
+    return kNoDef;
+}
+
+DamageTypeId ContentDb::addDamageType(DamageTypeDef def) {
+    damageTypes_.push_back(std::move(def));
+    return static_cast<DamageTypeId>(damageTypes_.size() - 1);
+}
+
+StatusDefId ContentDb::addStatus(StatusDef def) {
+    statuses_.push_back(std::move(def));
+    return static_cast<StatusDefId>(statuses_.size() - 1);
+}
+
 TowerDefId ContentDb::addTower(TowerDef def) {
     towers_.push_back(std::move(def));
     return static_cast<TowerDefId>(towers_.size() - 1);
@@ -285,6 +313,23 @@ bool load(Span<const Source> sources, ContentDb& out, std::vector<Error>& errors
     struct PendingTower {
         TowerDefId id = kNoDef;
         PendingRef projectile;
+        bool hasDamageType = false;
+        PendingRef damageType;
+        bool hasStatus = false;
+        PendingRef status;
+    };
+    struct PendingStatus {
+        StatusDefId id = kNoDef;
+        bool hasDamageType = false;
+        PendingRef damageType;
+    };
+    // A resistance names a damage type, so like every other cross-reference it
+    // waits for pass two -- and unlike the others there may be several per
+    // enemy, which is why this is a flat list rather than a field.
+    struct PendingResistance {
+        EnemyDefId enemy = kNoDef;
+        PendingRef type;
+        float value = 0.0f;
     };
     struct PendingWave {
         std::size_t index = 0;
@@ -293,6 +338,8 @@ bool load(Span<const Source> sources, ContentDb& out, std::vector<Error>& errors
     };
 
     std::vector<PendingTower> pendingTowers;
+    std::vector<PendingStatus> pendingStatuses;
+    std::vector<PendingResistance> pendingResistances;
     std::vector<PendingWave> pendingWaves;
     PendingRef pendingEndlessEnemy;
     bool haveEndlessEnemy = false;
@@ -348,10 +395,16 @@ bool load(Span<const Source> sources, ContentDb& out, std::vector<Error>& errors
                 def.damage = fields.requireFloat("damage");
                 def.reloadTicks = fields.requireTicks("reload_ticks");
                 const std::string_view projectile = fields.requireString("projectile");
+                const std::string_view damageType = fields.optionalString("damage_type", {});
+                const std::string_view status = fields.optionalString("applies_status", {});
                 fields.rejectUnknownKeys();
 
                 PendingTower pending;
                 pending.projectile = refAt(document.file, table, "projectile", projectile);
+                pending.hasDamageType = !damageType.empty();
+                pending.damageType = refAt(document.file, table, "damage_type", damageType);
+                pending.hasStatus = !status.empty();
+                pending.status = refAt(document.file, table, "applies_status", status);
                 pending.id = out.addTower(std::move(def));
                 pendingTowers.push_back(std::move(pending));
 
@@ -368,8 +421,96 @@ bool load(Span<const Source> sources, ContentDb& out, std::vector<Error>& errors
                 def.speed = fields.requireFloat("speed");
                 def.radius = fields.requireFloat("radius");
                 def.bounty = fields.requireInt("bounty");
+                def.armor = fields.optionalFloat("armor", 0.0f);
+
+                // Two parallel arrays rather than a table of pairs, for the
+                // same reason a wave's composition is: it is how a designer
+                // reads it back, and the loader can check the lengths match.
+                const Value* resists = fields.array("resists", ValueKind::String);
+                const Value* resistValues = fields.array("resist_values", ValueKind::Float);
                 fields.rejectUnknownKeys();
-                out.addEnemy(std::move(def));
+                const EnemyDefId enemyId = out.addEnemy(std::move(def));
+
+                if ((resists == nullptr) != (resistValues == nullptr)) {
+                    errors.push_back(Error{document.file, table.line, 1,
+                                           "'resists' and 'resist_values' must be given together"});
+                } else if (resists != nullptr &&
+                           resists->elements.size() != resistValues->elements.size()) {
+                    fields.reject(*resistValues, "'resist_values' has " +
+                                                     std::to_string(resistValues->elements.size()) +
+                                                     " entries but 'resists' has " +
+                                                     std::to_string(resists->elements.size()));
+                } else if (resists != nullptr) {
+                    for (std::size_t i = 0; i < resists->elements.size(); ++i) {
+                        const Value& name = resists->elements[i];
+                        PendingResistance pending;
+                        pending.enemy = enemyId;
+                        pending.type.file = document.file;
+                        pending.type.line = name.line;
+                        pending.type.column = name.column;
+                        pending.type.target = std::string(name.text);
+                        pending.value = resistValues->elements[i].asFloat();
+                        pendingResistances.push_back(std::move(pending));
+                    }
+                }
+
+            } else if (kind == "damage_type") {
+                DamageTypeDef def;
+                def.id = std::string(table.leaf());
+                if (out.findDamageType(def.id) != kNoDef) {
+                    errors.push_back(Error{document.file, table.line, 1,
+                                           "duplicate damage type '" + def.id + "'"});
+                    continue;
+                }
+                def.name = std::string(fields.optionalString("name", table.leaf()));
+                fields.rejectUnknownKeys();
+                out.addDamageType(std::move(def));
+
+            } else if (kind == "status") {
+                StatusDef def;
+                def.id = std::string(table.leaf());
+                if (out.findStatus(def.id) != kNoDef) {
+                    errors.push_back(
+                        Error{document.file, table.line, 1, "duplicate status '" + def.id + "'"});
+                    continue;
+                }
+                def.name = std::string(fields.optionalString("name", table.leaf()));
+                def.durationTicks = fields.requireTicks("duration_ticks");
+                def.damageTakenMultiplier = fields.optionalFloat("damage_taken_multiplier", 1.0f);
+                def.speedMultiplier = fields.optionalFloat("speed_multiplier", 1.0f);
+                def.damagePerTick = fields.optionalFloat("damage_per_tick", 0.0f);
+
+                const std::string_view policy = fields.requireString("stack");
+                if (policy == "refresh") {
+                    def.policy = StackPolicy::Refresh;
+                } else if (policy == "stack_intensity") {
+                    def.policy = StackPolicy::StackIntensity;
+                } else if (policy == "stack_duration") {
+                    def.policy = StackPolicy::StackDuration;
+                } else if (policy == "ignore") {
+                    def.policy = StackPolicy::Ignore;
+                } else if (!policy.empty()) {
+                    errors.push_back(Error{document.file, table.line, 1,
+                                           "'stack' must be one of refresh, stack_intensity, "
+                                           "stack_duration, ignore"});
+                }
+
+                const int maxStacks = fields.optionalInt("max_stacks", 1);
+                if (maxStacks < 1 || maxStacks > 0xFFFF) {
+                    errors.push_back(Error{document.file, table.line, 1,
+                                           "'max_stacks' must be between 1 and 65535"});
+                } else {
+                    def.maxStacks = static_cast<std::uint16_t>(maxStacks);
+                }
+
+                const std::string_view damageType = fields.optionalString("damage_type", {});
+                fields.rejectUnknownKeys();
+
+                PendingStatus pending;
+                pending.hasDamageType = !damageType.empty();
+                pending.damageType = refAt(document.file, table, "damage_type", damageType);
+                pending.id = out.addStatus(std::move(def));
+                pendingStatuses.push_back(std::move(pending));
 
             } else if (kind == "level") {
                 if (haveLevel) {
@@ -553,15 +694,50 @@ bool load(Span<const Source> sources, ContentDb& out, std::vector<Error>& errors
         return id;
     };
 
+    const auto resolveDamageType = [&](const PendingRef& ref) {
+        const DamageTypeId id = out.findDamageType(ref.target);
+        if (id == kNoDef) {
+            errors.push_back(
+                Error{ref.file, ref.line, ref.column, "no damage type named '" + ref.target + "'"});
+        }
+        return id;
+    };
+
     for (const PendingTower& pending : pendingTowers) {
         const ProjectileDefId id = out.findProjectile(pending.projectile.target);
         if (id == kNoDef) {
             errors.push_back(Error{pending.projectile.file, pending.projectile.line,
                                    pending.projectile.column,
                                    "no projectile named '" + pending.projectile.target + "'"});
-            continue;
+        } else {
+            out.setTowerProjectile(pending.id, id);
         }
-        out.setTowerProjectile(pending.id, id);
+        if (pending.hasDamageType) {
+            out.setTowerDamageType(pending.id, resolveDamageType(pending.damageType));
+        }
+        if (pending.hasStatus) {
+            const StatusDefId status = out.findStatus(pending.status.target);
+            if (status == kNoDef) {
+                errors.push_back(Error{pending.status.file, pending.status.line,
+                                       pending.status.column,
+                                       "no status named '" + pending.status.target + "'"});
+            } else {
+                out.setTowerStatus(pending.id, status);
+            }
+        }
+    }
+
+    for (const PendingStatus& pending : pendingStatuses) {
+        if (pending.hasDamageType) {
+            out.setStatusDamageType(pending.id, resolveDamageType(pending.damageType));
+        }
+    }
+
+    for (const PendingResistance& pending : pendingResistances) {
+        const DamageTypeId type = resolveDamageType(pending.type);
+        if (type != kNoDef) {
+            out.setEnemyResistance(pending.enemy, type, pending.value);
+        }
     }
 
     for (const PendingWave& pending : pendingWaves) {

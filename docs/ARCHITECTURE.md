@@ -57,13 +57,61 @@ entirely so that it cannot.
 
 ## Entity model
 
-Currently plain `std::vector<Enemy|Tower|Projectile>` inside `World`, with a monotonic
-`EntityId`. This is correct for a prototype and wrong at commercial scale: it cannot survive
-area damage (raw pointers into a mutating vector) and lookup is a linear scan.
+`Pool<T, Tag>`: dense storage behind a sparse slot table, with **generation-tagged handles** —
+dense iteration, O(1) lookup, and a stale handle that resolves to `nullptr` instead of
+dangling. Not a general ECS; see [ADR 0004](decisions/0004-pools-not-ecs.md). A uniform grid
+(`SpatialIndex`) is rebuilt once per tick so targeting is a bucket query rather than a scan.
 
-Phase 2 moves to pooled storage with **generation-tagged handles** — dense iteration, O(1)
-lookup, and a stale handle that fails safely instead of dangling. Not a general ECS; see
-[ADR 0004](decisions/0004-pools-not-ecs.md).
+Every entity has **two names, and the distinction is load-bearing**
+([ADR 0009](decisions/0009-handles-address-ids-identify.md)). A `Handle` is a storage address:
+which slot an entity occupies is a function of the pool's destruction history, so a handle
+must never be serialized and must never decide a gameplay tie-break. An `EntityId` is a
+monotonic per-pool sequence number that is never recycled, and it is what the hash writes, what
+the save file will carry, and what every ordering rule sorts on.
+
+Entities store a **def id rather than baked stats**, so a hot reload reaches towers already
+standing on the board. Per-entity state that is genuinely state — health, cooldown, position,
+status slots, stat mods — lives on the entity.
+
+## The tick
+
+`World` owns a `WorldState` (a plain struct with public fields and no invariants) and runs a
+fixed list of free functions over it. `World::step()` *is* the scheduler: nine calls in a
+readable order, fixed at compile time. ADR 0004 chose that over a runtime scheduler
+deliberately — a list of calls is deterministic by being obvious, and there is nothing to
+audit.
+
+The order is itself a design decision at every line: commands, waves, statuses, enemy movement,
+index rebuild, towers, projectiles, damage, outcome. An enemy that moved after the towers
+looked for it would be shot at where it used to be; damage applied before the projectiles moved
+would land a tick early.
+
+**Intent goes in through a command queue; facts come out through an event queue**
+([ADR 0012](decisions/0012-commands-in-events-out.md)). The UI previews, enqueues, and learns
+the outcome from an event — it never calls into the simulation to change it. That is what makes
+a replay file exactly the command stream plus tick numbers. Events are write-only from the
+simulation's side, cleared at the top of every step, and hashed anyway, because a run that
+reaches the same state for a different reason has a bug in it.
+
+## Damage
+
+Every point of damage in the game goes through **one function in one written-down order**
+([ADR 0011](decisions/0011-damage-order-is-canonical.md)):
+
+```
+base -> + flat mods -> x (1 + summed percent) -> x status multipliers -> x (1 - resistance)
+     -> - armor -> clamp at 0
+```
+
+Two orderings inside that are made canonical rather than left incidental, because float
+arithmetic is not associative and both would otherwise leak storage layout into balance. Status
+multipliers apply in ascending `StatusDefId`, never in the order the debuffs landed. The tick's
+damage queue is sorted on stable identities before it drains, never left in pool order.
+
+Status effects are a fixed-size inline array on the enemy, and stat modifiers a fixed-size
+inline array on the tower. No heap on a gameplay path, and no allocator-dependent iteration
+order. How an effect stacks — refresh, stack intensity, stack duration, ignore — is a line in
+the content file, not a branch in the code.
 
 ## Content
 

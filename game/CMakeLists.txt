@@ -14,6 +14,7 @@ add_library(ktd_game STATIC
     src/Grid.cpp
     src/Math.cpp
     src/Path.cpp
+    src/Systems.cpp
     src/World.cpp
 )
 
