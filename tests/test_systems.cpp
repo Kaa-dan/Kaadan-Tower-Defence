@@ -809,8 +809,13 @@ TEST(previous_positions_track_the_last_tick) {
             countEvents(world, EventType::EnemySpawned) == 0 &&
             countEvents(world, EventType::EnemyKilled) == 0 &&
             countEvents(world, EventType::EnemyLeaked) == 0) {
+            // Named local rather than subscripting the returned Span inline:
+            // GCC's -Wdangling-reference cannot tell the reference points into
+            // the pool rather than into the temporary, and -Werror makes that a
+            // build break on the Linux leg.
+            const Span<const Enemy> living = world.enemies();
             for (std::size_t i = 0; i < before; ++i) {
-                const Enemy& enemy = world.enemies()[i];
+                const Enemy& enemy = living[i];
                 CHECK(sameFloat(enemy.previousPosition.x, lastSeen[i].x));
                 CHECK(sameFloat(enemy.previousPosition.y, lastSeen[i].y));
                 checkedAnEnemy = true;
