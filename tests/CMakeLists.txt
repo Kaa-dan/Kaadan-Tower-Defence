@@ -1,6 +1,9 @@
-# Tests link ONLY ktd_game. If a test ever needs SDL or OpenGL to run, that is
-# a signal the simulation has grown a platform dependency it should not have.
+# Tests link ktd_game and ktd_render_core -- both of which build without SDL or
+# OpenGL. If a test ever needs either to run, that is a signal something has
+# grown a platform dependency it should not have. See docs/decisions/0013.
 set(KTD_TEST_SOURCES
+    test_atlas.cpp
+    test_batch.cpp
     test_content.cpp
     test_grid.cpp
     test_hash.cpp
@@ -15,7 +18,9 @@ set(KTD_TEST_SOURCES
 )
 
 add_executable(ktd_tests test_main.cpp ${KTD_TEST_SOURCES})
-target_link_libraries(ktd_tests PRIVATE ktd_game)
+# ktd_render_core carries ktd_game transitively; naming both makes ld warn
+# about a duplicate library on every link.
+target_link_libraries(ktd_tests PRIVATE ktd_render_core)
 target_include_directories(ktd_tests PRIVATE .)
 ktd_set_warnings(ktd_tests)
 
@@ -52,6 +57,14 @@ target_compile_definitions(ktd_tests
 foreach(TARGET ktd_tests ktd_hashdump)
     target_compile_definitions(${TARGET} PRIVATE KTD_CONTENT_DIR="${CMAKE_SOURCE_DIR}/content")
 endforeach()
+
+# The renderer's decision half must stay linkable without a GPU, which is what
+# keeps the four batching tests above inside the core preset.
+add_test(NAME purity_render_core
+    COMMAND ${CMAKE_COMMAND}
+            -DGAME_DIR=${CMAKE_SOURCE_DIR}/engine/renderer
+            -DRULE=render_core
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/check_purity.cmake)
 
 # Portability and determinism guards over game/.
 foreach(RULE platform determinism stdlib)

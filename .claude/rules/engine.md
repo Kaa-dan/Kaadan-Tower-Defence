@@ -25,10 +25,26 @@ and owns presentation.
   **physical pixels** (the renderer needs these). `pixelScale` is their ratio.
 - Edge-triggered input flags are cleared at the top of `pumpEvents`, not by the caller.
 
+## Renderer split (`renderer/` vs `backends/gl/`)
+
+`engine/renderer/` is the **decision** half: atlas packing, sort keys, batch planning,
+projection math. It builds as `ktd_render_core` and links without SDL or GL, which is what
+lets `tests/` reach it under `KTD_TESTS_ONLY` ([ADR 0013](../../docs/decisions/0013-render-core-is-testable-without-a-gpu.md)).
+`purity_render_core` fails the build if an SDL, GL or `backends/` include appears there.
+
+That guard is a **dependency** rule, not a determinism one. Presentation may use `<cmath>`
+and its floats never reach the state hash.
+
+`backends/gl/` is the **executor**: it owns every GL call and does what the planner decided.
+New batching or packing logic goes in `renderer/`, or it cannot be tested.
+
 ## Renderer backend (`backends/gl/`)
 
 - OpenGL 3.3 core. `GLLoader.h` resolves entry points through an X-macro list — adding a GL
   call means adding it there first, or you get a null function pointer at runtime.
+- **`loadFunctions` fails hard on the first unresolved symbol.** Anything newer than 3.3 —
+  `glDebugMessageCallback` is 4.3 — must be resolved separately and tolerate null, or the
+  renderer refuses to start on the older drivers it was meant to help diagnose.
 - No glad, no GLEW. The hand-rolled loader is deliberate and keeps the dependency count at one.
 - Shaders are `#version 330 core`. Mobile would need `#version 300 es` plus precision
   qualifiers — roughly a day's work, deliberately deferred.
@@ -42,7 +58,9 @@ into `World::step()`.**
 
 ## Testing
 
-Nothing in `engine/` or `app/` is currently covered. Pure functions here — camera fitting,
-`pointerToCell`, projection math, atlas packing — can and should be tested without a window.
-Anything requiring a GPU is verified by running the app and looking at it, which means asking
-the owner.
+`engine/renderer/` is covered and runs inside `ctest --preset core`. Anything pure here —
+camera fitting, `pointerToCell`, projection math, atlas packing, batch planning — belongs in
+`ktd_render_core` with a test, not inside a backend where no test can reach it.
+
+`engine/backends/` and `app/` remain uncovered. Anything genuinely requiring a GPU is
+verified by running the app and looking at it, which means asking the owner.
