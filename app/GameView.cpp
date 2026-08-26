@@ -1,6 +1,8 @@
 #include "GameView.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 
 namespace ktd {
 namespace {
@@ -22,7 +24,52 @@ constexpr Color kRouteHint{0.35f, 0.45f, 0.65f, 0.55f};
 
 constexpr float kMargin = 0.6f;  // tiles of empty space around the board
 
+// Draw layers. Spaced by ten so a layer can be slipped between two of these
+// without renumbering the rest.
+//
+// The board is not in this list: it is the static layer, which draws below
+// everything by construction rather than by sort key -- see
+// Renderer::setStaticQuads.
+enum Layer : std::uint32_t {
+    kLayerRoute = 10,
+    kLayerPreview = 20,
+    kLayerTowers = 30,
+    kLayerEnemies = 40,
+    kLayerHealthBar = 50,
+    kLayerProjectiles = 60,
+    kLayerOverlay = 70,
+};
+
 }  // namespace
+
+void GameView::syncStaticLayer(Renderer& renderer, const World& world) {
+    if (staticUploaded_ && staticVersion_ == world.gridVersion()) {
+        return;
+    }
+
+    const Grid& grid = world.grid();
+    staticQuads_.clear();
+    staticQuads_.reserve(static_cast<std::size_t>(grid.width() * grid.height()) + 2);
+
+    for (int y = 0; y < grid.height(); ++y) {
+        for (int x = 0; x < grid.width(); ++x) {
+            const Cell cell{x, y};
+            const Tile tile = grid.at(cell);
+            if (tile == Tile::Tower) {
+                continue;  // drawn with the tower entities instead
+            }
+            const Color color = (tile == Tile::Wall) ? kTileWall : kTileOpen;
+            staticQuads_.push_back({Grid::centerOf(cell), {0.94f, 0.94f}, {}, color});
+        }
+    }
+
+    staticQuads_.push_back({Grid::centerOf(world.spawn()), {0.94f, 0.94f}, {}, kSpawn});
+    staticQuads_.push_back({Grid::centerOf(world.goal()), {0.94f, 0.94f}, {}, kGoal});
+
+    renderer.setStaticQuads({staticQuads_.data(), staticQuads_.size()}, render::kWhiteTexture);
+    staticVersion_ = world.gridVersion();
+    staticUploaded_ = true;
+}
 
 void GameView::updateCamera(const World& world, int pixelWidth, int pixelHeight) {
     const float boardW = static_cast<float>(world.grid().width()) + kMargin * 2.0f;
@@ -69,28 +116,18 @@ Cell GameView::pointerToCell(Vec2 pointer, const InputState& input) const {
 }
 
 void GameView::draw(Renderer& renderer, const World& world, Cell hovered,
-                    content::TowerDefId selected) const {
+                    content::TowerDefId selected) {
     const Grid& grid = world.grid();
 
     // --- board -------------------------------------------------------------
-    for (int y = 0; y < grid.height(); ++y) {
-        for (int x = 0; x < grid.width(); ++x) {
-            const Cell cell{x, y};
-            const Tile tile = grid.at(cell);
-            if (tile == Tile::Tower) {
-                continue;  // drawn with the tower entities below
-            }
-            const Color color = (tile == Tile::Wall) ? kTileWall : kTileOpen;
-            renderer.drawQuad(Grid::centerOf(cell), {0.94f, 0.94f}, color);
-        }
-    }
-
-    renderer.drawQuad(Grid::centerOf(world.spawn()), {0.94f, 0.94f}, kSpawn);
-    renderer.drawQuad(Grid::centerOf(world.goal()), {0.94f, 0.94f}, kGoal);
+    // Uploaded once and again only when a tower changes a tile, rather than
+    // resubmitted every frame.
+    syncStaticLayer(renderer, world);
 
     // --- the route enemies will take --------------------------------------
     // Reading the flow field back as a polyline shows the player exactly what
     // their next tower placement will change.
+    renderer.setLayer(kLayerRoute);
     {
         Cell cursor = world.spawn();
         for (int step = 0; step < grid.width() * grid.height(); ++step) {
@@ -104,6 +141,7 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered,
     }
 
     // --- placement preview -------------------------------------------------
+    renderer.setLayer(kLayerPreview);
     if (grid.inBounds(hovered)) {
         // previewPlacement rather than the free canPlaceTower: this runs every
         // frame, and the World version memoizes the BFS on the hover cell and a
@@ -122,6 +160,7 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered,
     }
 
     // --- towers ------------------------------------------------------------
+    renderer.setLayer(kLayerTowers);
     for (const Tower& tower : world.towers()) {
         const Vec2 center = Grid::centerOf(tower.cell);
         renderer.drawQuad(center, {0.78f, 0.78f}, kTowerBody);
@@ -130,21 +169,27 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered,
     }
 
     // --- enemies -----------------------------------------------------------
+    renderer.setLayer(kLayerEnemies);
     for (const Enemy& enemy : world.enemies()) {
         const float size = world.content().enemy(enemy.type).radius * 2.0f;
         renderer.drawQuad(enemy.position, {size, size}, kEnemy);
 
         // Health bar, only once damaged.
         if (enemy.health < enemy.maxHealth) {
+            // A layer above the enemies, so a bar is never covered by the
+            // enemy standing in front of its owner.
+            renderer.setLayer(kLayerHealthBar);
             const float fraction = std::clamp(enemy.health / enemy.maxHealth, 0.0f, 1.0f);
             const Vec2 barCenter{enemy.position.x, enemy.position.y + 0.34f};
             renderer.drawQuad(barCenter, {0.5f, 0.09f}, kHealthBack);
             renderer.drawQuad({barCenter.x - 0.5f * (1.0f - fraction) * 0.5f, barCenter.y},
                               {0.5f * fraction, 0.07f}, kHealthFill);
+            renderer.setLayer(kLayerEnemies);
         }
     }
 
     // --- projectiles -------------------------------------------------------
+    renderer.setLayer(kLayerProjectiles);
     for (const Projectile& shot : world.projectiles()) {
         renderer.drawQuad(shot.position, {0.14f, 0.14f}, kProjectile);
     }
@@ -152,6 +197,7 @@ void GameView::draw(Renderer& renderer, const World& world, Cell hovered,
     // --- state overlays ----------------------------------------------------
     // No text renderer yet, so status is conveyed by a tint plus the window
     // title. A bitmap font is the natural next addition.
+    renderer.setLayer(kLayerOverlay);
     if (world.state() == GameState::Defeat) {
         renderer.drawQuad({(left_ + right_) * 0.5f, (bottom_ + top_) * 0.5f},
                           {right_ - left_, top_ - bottom_}, {0.60f, 0.10f, 0.10f, 0.35f});

@@ -46,6 +46,20 @@ New batching or packing logic goes in `renderer/`, or it cannot be tested.
   `glDebugMessageCallback` is 4.3 — must be resolved separately and tolerate null, or the
   renderer refuses to start on the older drivers it was meant to help diagnose.
 - No glad, no GLEW. The hand-rolled loader is deliberate and keeps the dependency count at one.
+- **Texture id 0 is the 1x1 white texture** every backend creates at init. That is what makes
+  `drawQuad` a tinted white texel and keeps one virtual draw path instead of three — do not add
+  an untextured shader variant back.
+- **Vertex colours are packed bytes, and packing clamps.** `render::packRgba` is a float→int
+  narrowing over tints that are *computed* (a health fraction, a damage flash), so an
+  unclamped one is undefined behaviour, not a wrong colour.
+- **Rotation is a unit direction, never an angle** ([ADR 0015](../../docs/decisions/0015-sprites-take-a-direction-not-an-angle.md)).
+  An angle API creates a caller that wants trig in `game/Math.h`, where `purity_determinism`
+  bans it.
+- **GL objects are move-only RAII handles.** Two shader leaks lived in the hand-freed version;
+  the failure paths are correct by construction now, so keep them that way.
+- **The static layer draws before the batch's first span**, in that span's camera. Its place in
+  the layer order is explicit on purpose — a baked buffer cannot participate in the sort, and
+  "sorted by layer, except the tiles" is the bug that hides in not saying so.
 - Shaders are `#version 330 core`. Mobile would need `#version 300 es` plus precision
   qualifiers — roughly a day's work, deliberately deferred.
 

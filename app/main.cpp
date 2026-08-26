@@ -14,7 +14,7 @@ using namespace ktd;
 namespace {
 
 std::string buildTitle(const World& world, content::TowerDefId selected, int speed,
-                       bool contentBroken) {
+                       bool contentBroken, RenderStats render) {
     std::string title = "kaadanTD  |  Wave " + std::to_string(world.waveNumber()) + "   Gold " +
                         std::to_string(world.gold()) + "   Lives " + std::to_string(world.lives()) +
                         "   Killed " + std::to_string(world.enemiesKilled());
@@ -23,6 +23,14 @@ std::string buildTitle(const World& world, content::TowerDefId selected, int spe
     if (speed > 1) {
         title += "   " + std::to_string(speed) + "x";
     }
+#if !defined(NDEBUG)
+    // The batching target is 5-15 draw calls a frame. Somewhere visible is the
+    // only place a number like that gets noticed regressing.
+    title += "   " + std::to_string(render.drawCalls) + " draws / " + std::to_string(render.quads) +
+             " quads";
+#else
+    (void)render;
+#endif
     if (contentBroken) {
         title += "   [CONTENT ERROR - see console, F5 to retry]";
     } else if (world.state() == GameState::Defeat) {
@@ -214,7 +222,8 @@ int main(int /*argc*/, char** /*argv*/) {
 
         // Setting the title every frame causes visible flicker on some window
         // managers, so only push it when the text actually changes.
-        std::string title = buildTitle(world, selectedTower, speed, contentBroken);
+        std::string title =
+            buildTitle(world, selectedTower, speed, contentBroken, renderer->stats());
         if (title != lastTitle) {
             platform->setWindowTitle(title);
             lastTitle = std::move(title);

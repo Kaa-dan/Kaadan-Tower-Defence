@@ -80,6 +80,11 @@ public:
 
     // --- observation (rendering, UI, tests) ---
     const Grid& grid() const { return state_.grid; }
+
+    // Bumped whenever a tile changes. Presentation uses it to know when a
+    // baked copy of the board -- a static vertex buffer, say -- is stale,
+    // which is cheaper than comparing the grid every frame.
+    std::uint32_t gridVersion() const { return state_.gridVersion; }
     const FlowField& flowField() const { return state_.flow; }
     // Views, not containers. Callers only ever iterate, subscript and size
     // these, so naming the underlying storage in the signature would have made
