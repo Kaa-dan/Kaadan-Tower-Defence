@@ -8,6 +8,75 @@ will matter in six months belongs in an ADR, not here.
 
 ---
 
+## 2026-08-26 — Phase 5 design review, and the split it forced
+
+Re-ran the renderer design review the roadmap had been flagging since Phase 2. It was supposed
+to be a read-through before starting. It changed the shape of the phase instead.
+
+**The spec could not have been built.** Five of Phase 5's six acceptance criteria named tests
+for `engine/` code — the atlas packer, the sort key, the draw-call count, the mid-frame camera
+flush. `ktd_tests` links `ktd_game` and nothing else, and the `core` preset sets
+`KTD_TESTS_ONLY=ON`, which makes the root `CMakeLists.txt` skip `add_subdirectory(engine)`
+outright. Those tests would have failed to compile, and the two obvious repairs are both bad:
+linking `ktd_engine` drags SDL into the preset whose whole purpose is not having it (0.7s
+configure becomes 94s, per push, three OSes), and a `dev`-only second binary puts the batching
+logic in the tier nobody runs while working.
+
+So the phase starts with a split ([ADR 0013](decisions/0013-render-core-is-testable-without-a-gpu.md)).
+`ktd_render_core` — atlas, sort key, batch planner, projection math — links without SDL or GL and
+is reachable from `tests/` under `KTD_TESTS_ONLY`. `ktd_engine` is now the backends only, and
+`GLRenderer` becomes the thing that *executes* what the planner decided. `purity_render_core` is
+the fourth guard and it bans `backends/` includes as well as the platform headers, because the
+boundary that matters here is decision-vs-executor, not just portability.
+
+The underlying problem was placement, not build config. A skyline packer and a flush rule are
+decisions about integers; they were about to be written next to the `glBufferData` calls purely
+because that is where the first pass put them, and that placement is what made them untestable.
+
+**`glDebugMessageCallback` would have bricked the renderer on every 3.3 driver.** It was in the
+housekeeping list, and `loadFunctions` returns false on the first unresolved symbol — so the
+debug output meant to diagnose old drivers would have refused to start on exactly those. It is
+GL 4.3. Needs an optional resolve that tolerates null. Now written into `.claude/rules/`, because
+the next person to add an entry point will not know this either.
+
+**Six more corrections**, all marked ⟳ in the spec. The one worth repeating: `drawSprite` takes a
+direction vector, not an angle. `tower.aim` already *is* a unit vector, so an angle API makes the
+caller `atan2` a vector it had and the renderer `sin`/`cos` it straight back — and it invites trig
+into `game/Math.h`, where `purity_determinism` bans it and where Phase 1 deliberately declined to
+add it. A unit `forward` is a 2x2 rotation with no trig anywhere. Also: the frame-global sort
+would have drawn the HUD under the board on the frames where the texture ids happened to line up,
+so sorting is per camera span; and there is a second shader leak at `GLRenderer.cpp:85-90` on link
+failure that the first pass missed while fixing the one at 74-75.
+
+**Landed:** `ktd_render_core` with the skyline packer and the batch planner, nine tests, the
+fourth purity guard, and the CMake restructure. 101 tests green on `core` (was 92), green under
+ASan+UBSan, `dev` still builds, format clean. Core configure is still 0.1s — the fast loop
+survived the split, which was the point.
+
+**Every new guard was verified by breaking something**, per the Phase 0 precedent. An SDL include
+and a `backends/` include each fail `purity_render_core`; deleting the span term from the sort
+fails `sort_within_camera_span_never_reorders_across_it` **and nothing else**, which is the
+discrimination you want; removing the gutter fails only the padding test. A guard that has never
+failed proves nothing.
+
+**Surprise:** `-Wfloat-equal` rejected `operator==(Camera) = default`. The warning is right in
+general and wrong here — the question is "is this the same camera the caller already set", not
+"are these numerically close", and a tolerance would draw half a frame through the wrong matrix.
+Written as an explicit `std::bit_cast` comparison with the reasoning inline, rather than
+suppressed.
+
+**Open, and the owner's:** `stb_image.h` ([ADR 0014](decisions/0014-image-decoding.md), status
+*proposed*). Phase 5 needs a decoder and `CLAUDE.md` opens with "One dependency: SDL3". The
+recommendation is to vendor the header and edit that line. It blocks nothing — everything except
+`loadTexture`'s file path works against in-memory pixel buffers.
+
+**Next:** the GL half. Vertex format to `{x, y, u, v, rgba}` with a clamped pack, indexed
+drawing, textures and `loadTexture`, `drawSprite(forward)`, wiring `BatchPlanner` into
+`GLRenderer` so the camera is batch state, the static tile VBO, and the housekeeping. None of it
+is designed-but-unbuilt any more; it is written down and checked.
+
+---
+
 ## 2026-08-26 — Phase 4: the tick is a list, damage is a formula, intent is a queue
 
 `World` is 156 lines of header and 160 of source, and none of it is a rule. The fields moved to

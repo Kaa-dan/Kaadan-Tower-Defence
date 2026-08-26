@@ -14,15 +14,16 @@ Start a phase with `/phase <n>`. Check state with `/status`.
 | [2](phase-02-entity-storage.md) | Entity storage: handles, pools, spatial index | 3 d | ✅ done (`phase-02/entity-storage`, PR #4) |
 | [3](phase-03-content.md) | Data-driven content + hot reload | 3 d | ✅ done (`phase-03/content`, PR #5) |
 | [4](phase-04-systems.md) | Systems split, damage pipeline, event queue | 2 d | ✅ done (branch pending) |
-| [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 4-5 d | ⬜ **next** ⚠️ |
+| [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 5-6 d | 🔨 **in progress**, design re-reviewed |
 | [6](phase-06-presentation.md) | Text, input, filesystem, interpolation | 4 d | ⬜ ⚠️ |
 | [7](phase-07-persistence.md) | Save / replay / settings | 2 d | ⬜ |
 | [8](phase-08-ui-audio.md) | UI framework, audio, scenes | 5-7 d | ⬜ |
 | [9](phase-09-shipping.md) | Steam + packaging | 4-5 d | ⬜ |
 
 ⚠️ = the design for this phase has had only one pass. Phases 1-4 were reviewed by a second
-independent design agent; the renderer review died mid-run and was never redone. Worth
-re-running before starting Phase 5.
+independent design agent; the renderer review died mid-run. **It was redone on 2026-08-26** —
+Phase 5's spec now carries eight marked corrections and two new ADRs. Phase 6 is still
+one-pass and should get the same treatment before it starts.
 
 Roughly **6-8 weeks** of focused work to the end of Phase 6, at which point the engine can
 carry a commercial game and the rest is content and polish. For calibration: Tangy TD took
@@ -52,7 +53,17 @@ Two dependencies are load-bearing:
   call.
 - **`LICENSE`** — deliberately not chosen. This is a commercial title; the call is the
   owner's.
-- **Re-run the renderer/platform design review** before Phase 5.
+- ~~**Re-run the renderer/platform design review** before Phase 5.~~ **Done 2026-08-26.** The
+  headline finding: five of Phase 5's six acceptance criteria named tests that could not have
+  compiled, because `ktd_tests` links only `ktd_game` and the `core` preset skips `engine/`
+  entirely. Fixed by splitting the renderer at the line a test can reach
+  ([ADR 0013](../decisions/0013-render-core-is-testable-without-a-gpu.md)). Also caught:
+  `glDebugMessageCallback` is GL 4.3, and the first pass put it in the fail-hard loader list,
+  which would have refused to start the renderer on every 3.3 driver.
+- **Decide on `stb_image.h`** ([ADR 0014](../decisions/0014-image-decoding.md), status
+  *proposed*). Phase 5 needs an image decoder and `CLAUDE.md` opens with "One dependency:
+  SDL3". The recommendation is to vendor the header and edit that line. Not blocking — the
+  whole phase except `loadTexture`'s file path builds against in-memory pixel buffers.
 - **Re-baselined the determinism hash.** Phase 2 moved the golden checksum to
   `0x8D8C026A6A51F571` and regenerated `tests/data/reference_trace.tsv`, on purpose and in one
   step: the goal-tunneling fix is a real gameplay change (enemies now leak reliably, so an

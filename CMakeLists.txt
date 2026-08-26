@@ -49,10 +49,11 @@ if(MINGW)
     add_link_options(-static-libgcc -static-libstdc++)
 endif()
 
-add_subdirectory(game)     # pure C++ simulation. No platform, no graphics.
+add_subdirectory(game)              # pure C++ simulation. No platform, no graphics.
+add_subdirectory(engine/renderer)   # atlas + batch planning. Pure too, so tests can link it.
 
 if(NOT KTD_TESTS_ONLY)
-    add_subdirectory(engine)   # platform + renderer interfaces and their backends.
+    add_subdirectory(engine)   # platform + renderer backends. This is the one that needs SDL.
     add_subdirectory(app)      # the executable that wires the two together.
 endif()
 

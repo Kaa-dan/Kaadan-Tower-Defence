@@ -70,6 +70,23 @@ elseif(RULE STREQUAL "determinism")
     )
     set(DESCRIPTION "non-deterministic facilities")
 
+elseif(RULE STREQUAL "render_core")
+    # engine/renderer/ is the decision half of the renderer: atlas packing,
+    # sort keys, batch planning. It must link without SDL or a GL context so
+    # tests/ can reach it under KTD_TESTS_ONLY (ADR 0013).
+    #
+    # This is a DEPENDENCY rule, not a determinism one. Presentation is allowed
+    # <cmath> and floats that never touch the state hash; conflating the two
+    # would either ban trig from a renderer for no reason or weaken the guard
+    # that protects replays.
+    set(BAD_INCLUDES
+        "sdl" "windows.h" "gl/gl" "opengl/" "cocoa/" "x11/" "vulkan"
+        "d3d1" "dxgi" "metal" "wayland" "jni.h" "android/"
+        "backends/"   # the whole point: decisions must not reach the executor
+    )
+    set(BAD_TOKENS "std::sort")
+    set(DESCRIPTION "backend and graphics dependencies")
+
 elseif(RULE STREQUAL "stdlib")
     # game/ owns schemas and parsing, never file I/O -- that belongs to the
     # platform layer. Unordered containers are banned because their iteration
@@ -151,11 +168,11 @@ endforeach()
 
 if(VIOLATIONS)
     list(REMOVE_DUPLICATES VIOLATIONS)
-    message(STATUS "Forbidden ${DESCRIPTION} in the portable game core:")
+    message(STATUS "Forbidden ${DESCRIPTION} in ${GAME_DIR}:")
     foreach(VIOLATION ${VIOLATIONS})
         message(STATUS "  ${VIOLATION}")
     endforeach()
-    message(FATAL_ERROR "game/ must stay free of ${DESCRIPTION}.")
+    message(FATAL_ERROR "${GAME_DIR} must stay free of ${DESCRIPTION}.")
 endif()
 
 message(STATUS "purity/${RULE}: clean (${SOURCE_COUNT} sources checked)")
