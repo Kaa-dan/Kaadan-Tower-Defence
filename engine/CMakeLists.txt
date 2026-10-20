@@ -20,19 +20,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(SDL3)
 
-# The backends, and only the backends. renderer/ is a separate target added
-# from the root CMakeLists so it builds without SDL -- see engine/renderer/.
+# The backends, and only the backends. renderer/ and image/ are separate
+# targets added from the root CMakeLists so they build without SDL -- see
+# engine/renderer/ and engine/image/. image/LoadTexture.cpp is the exception: it
+# joins a Platform to a Renderer, so it is compiled here.
 add_library(ktd_engine STATIC
     backends/sdl/SDLPlatform.cpp
     backends/gl/GLRenderer.cpp
     backends/gl/GLLoader.cpp
+    image/LoadTexture.cpp
 )
 
 target_include_directories(ktd_engine PUBLIC .)
 
 # The engine may see the game's public headers (the renderer draws the world),
 # but never the reverse. ktd_render_core carries ktd_game transitively.
-target_link_libraries(ktd_engine PUBLIC ktd_render_core PRIVATE SDL3::SDL3-static)
+target_link_libraries(ktd_engine PUBLIC ktd_render_core ktd_image PRIVATE SDL3::SDL3-static)
 
 if(APPLE)
     find_library(OPENGL_FRAMEWORK OpenGL REQUIRED)

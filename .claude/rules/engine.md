@@ -38,6 +38,19 @@ and its floats never reach the state hash.
 `backends/gl/` is the **executor**: it owns every GL call and does what the planner decided.
 New batching or packing logic goes in `renderer/`, or it cannot be tested.
 
+## Image decoding (`image/`)
+
+- **`stb_image.h` is included in exactly one file: `engine/image/Image.cpp`** ([ADR 0014](../../docs/decisions/0014-image-decoding.md)).
+  `purity_platform` and `purity_render_core` fail the build if `game/` or `renderer/` include it.
+- The decoder takes **bytes, never a path**. Files enter through `Platform::readFile` only;
+  `STBI_NO_STDIO` is set so stb cannot open anything itself. `loadTexture` is the join.
+- `ktd_image` links only `ktd_game` and builds under `KTD_TESTS_ONLY`, so decoding is tested in
+  the core preset. Keep it that way: `LoadTexture.cpp` needs a `Renderer`, so `ktd_engine`
+  compiles it, not `ktd_image`.
+- PNG only. Enabling another format is new parser surface; it needs a caller first.
+- `third_party/` is never edited and never run through clang-format. Upgrades replace the file
+  and update `third_party/README.md`, then run the `asan` preset.
+
 ## Renderer backend (`backends/gl/`)
 
 - OpenGL 3.3 core. `GLLoader.h` resolves entry points through an X-macro list — adding a GL
@@ -45,7 +58,8 @@ New batching or packing logic goes in `renderer/`, or it cannot be tested.
 - **`loadFunctions` fails hard on the first unresolved symbol.** Anything newer than 3.3 —
   `glDebugMessageCallback` is 4.3 — must be resolved separately and tolerate null, or the
   renderer refuses to start on the older drivers it was meant to help diagnose.
-- No glad, no GLEW. The hand-rolled loader is deliberate and keeps the dependency count at one.
+- No glad, no GLEW. The hand-rolled loader is deliberate and keeps the dependency list at SDL3
+  plus one vendored header.
 - **Texture id 0 is the 1x1 white texture** every backend creates at init. That is what makes
   `drawQuad` a tinted white texel and keeps one virtual draw path instead of three — do not add
   an untextured shader variant back.

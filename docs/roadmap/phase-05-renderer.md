@@ -166,10 +166,20 @@ quietly means "sorted by layer, except the tiles".
   deleting either shader *or* the program.
 - RAII wrappers for GL objects.
 
-## Dependency
+## Dependency — resolved 2026-10-16
 
-Needs an image decoder — the one thing in this phase that is the owner's call, because
-`CLAUDE.md` opens with "One dependency: SDL3" and this would make it two.
-[ADR 0014](../decisions/0014-image-decoding.md) lays out the three options and recommends
-vendoring `stb_image.h`. Not blocking: everything above except `loadTexture`'s file path can be
-built and tested against in-memory pixel buffers first.
+Needed an image decoder, the one thing in this phase that was the owner's call, because
+`CLAUDE.md` opened with "One dependency: SDL3". The owner accepted
+[ADR 0014](../decisions/0014-image-decoding.md): `stb_image.h` v2.30 is vendored unmodified in
+`third_party/`, compiled only in `engine/image/Image.cpp` (`ktd_image`, PNG only, no stdio,
+8192px cap). `loadTexture` joins `Platform::readFile` → `decodePng` → `createTexture`, and
+`buildAtlas` composes decoded sprites into one texture inside `ktd_render_core`. Seven tests
+added, each shown to fail against a broken implementation:
+
+- [x] `png_decodes_to_rgba8_top_row_first`
+- [x] `png_decode_expands_rgb_and_palette_to_rgba`
+- [x] `png_decode_rejects_garbage_with_a_reason` — and leaves the output untouched
+- [x] `png_decode_refuses_oversized_dimensions` — rejected from the header, by the cap
+- [x] `atlas_builder_copies_pixels_into_placements` — gutters stay transparent
+- [x] `atlas_builder_uvs_address_texel_edges` — no half-texel inset under `GL_NEAREST`
+- [x] `atlas_builder_fails_loudly_when_full` — all or nothing, names the sprite

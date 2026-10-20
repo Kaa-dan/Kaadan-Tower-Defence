@@ -51,6 +51,7 @@ endif()
 
 add_subdirectory(game)              # pure C++ simulation. No platform, no graphics.
 add_subdirectory(engine/renderer)   # atlas + batch planning. Pure too, so tests can link it.
+add_subdirectory(engine/image)      # PNG decoding (stb_image). Pure too, for the same reason.
 
 if(NOT KTD_TESTS_ONLY)
     add_subdirectory(engine)   # platform + renderer backends. This is the one that needs SDL.

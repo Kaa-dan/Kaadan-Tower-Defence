@@ -1,5 +1,5 @@
-# Tests link ktd_game and ktd_render_core -- both of which build without SDL or
-# OpenGL. If a test ever needs either to run, that is a signal something has
+# Tests link ktd_game, ktd_render_core and ktd_image -- all of which build
+# without SDL or OpenGL. If a test ever needs either to run, that is a signal something has
 # grown a platform dependency it should not have. See docs/decisions/0013.
 set(KTD_TEST_SOURCES
     test_atlas.cpp
@@ -7,6 +7,7 @@ set(KTD_TEST_SOURCES
     test_content.cpp
     test_grid.cpp
     test_hash.cpp
+    test_image.cpp
     test_math.cpp
     test_path.cpp
     test_pool.cpp
@@ -21,7 +22,7 @@ set(KTD_TEST_SOURCES
 add_executable(ktd_tests test_main.cpp ${KTD_TEST_SOURCES})
 # ktd_render_core carries ktd_game transitively; naming both makes ld warn
 # about a duplicate library on every link.
-target_link_libraries(ktd_tests PRIVATE ktd_render_core)
+target_link_libraries(ktd_tests PRIVATE ktd_render_core ktd_image)
 target_include_directories(ktd_tests PRIVATE .)
 ktd_set_warnings(ktd_tests)
 
@@ -65,6 +66,14 @@ add_test(NAME purity_render_core
     COMMAND ${CMAKE_COMMAND}
             -DGAME_DIR=${CMAKE_SOURCE_DIR}/engine/renderer
             -DRULE=render_core
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/check_purity.cmake)
+
+# The decoder is held to the same no-backend rule, minus the ban on stb_image
+# itself: Image.cpp is the one file that is allowed it (ADR 0014).
+add_test(NAME purity_image
+    COMMAND ${CMAKE_COMMAND}
+            -DGAME_DIR=${CMAKE_SOURCE_DIR}/engine/image
+            -DRULE=image
             -P ${CMAKE_CURRENT_SOURCE_DIR}/check_purity.cmake)
 
 # Portability and determinism guards over game/.
