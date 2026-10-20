@@ -62,8 +62,12 @@ Runnable under `ctest --preset core` after the split:
       `{1, 0}` must be bit-exactly the identity or axis-aligned tiles seam.
 - [x] `orthographic_maps_camera_corners_to_clip_space` — added: the projection moved out of the
       backend, so it became something a test can state.
-- [ ] Manual (owner): the game runs and looks correct. **I cannot verify this** — sprites
+- [x] Manual (owner): the game runs and looks correct. **I cannot verify this** — sprites
       placed, oriented, and layered correctly is a judgment only the owner can make.
+      *2026-10-20: screenshots taken of the game window (Retina, 2560×1664) show the board,
+      walls, spawn/goal, path, enemies with health bars, and towers with barrels rotating to
+      track targets, all in 2 draw calls. Projectiles were never caught mid-flight, but
+      enemies die. Owner signed off the same day.*
 
 ## Work
 

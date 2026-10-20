@@ -14,7 +14,7 @@ Start a phase with `/phase <n>`. Check state with `/status`.
 | [2](phase-02-entity-storage.md) | Entity storage: handles, pools, spatial index | 3 d | ✅ done (`phase-02/entity-storage`, PR #4) |
 | [3](phase-03-content.md) | Data-driven content + hot reload | 3 d | ✅ done (`phase-03/content`, PR #5) |
 | [4](phase-04-systems.md) | Systems split, damage pipeline, event queue | 2 d | ✅ done (branch pending) |
-| [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 5-6 d | 🔨 code complete; **owner visual check pending** |
+| [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 5-6 d | ✅ done (`phase-05/image-atlas`, owner signed off 2026-10-20) |
 | [6](phase-06-presentation.md) | Text, input, filesystem, interpolation | 4 d | ⬜ ⚠️ |
 | [7](phase-07-persistence.md) | Save / replay / settings | 2 d | ⬜ |
 | [8](phase-08-ui-audio.md) | UI framework, audio, scenes | 5-7 d | ⬜ |
@@ -69,11 +69,10 @@ Two dependencies are load-bearing:
   coloured quads because there is nothing to load. The first art drop is a `GameView` change,
   not an engine one: `readFile` the PNGs, `decodePng`, `buildAtlas`, one `createTexture`, then
   `drawSprite` with the returned UVs. Art is the owner's.
-- **Nobody has looked at the new renderer.** The GL half rewrote the vertex format, the draw
-  path, the batching and the board upload. It runs clean, but screen capture is blocked by
-  macOS permissions on this machine, so *"the game runs and looks correct"* is unverified and
-  is Phase 5's last unticked criterion — and, since the decoder landed, **the only thing
-  holding Phase 5 open.** Debug builds put draw calls and quad count in the window title.
+- **The new renderer has been seen, by screenshot.** On 2026-10-20 the owner granted screen
+  capture, and window captures show the board, enemies, health bars and rotating tower
+  barrels drawn correctly in 2 draw calls ([phase spec](phase-05-renderer.md) has the
+  detail). The owner signed off *"looks correct"* the same day, closing Phase 5.
 - **Re-baselined the determinism hash.** Phase 2 moved the golden checksum to
   `0x8D8C026A6A51F571` and regenerated `tests/data/reference_trace.tsv`, on purpose and in one
   step: the goal-tunneling fix is a real gameplay change (enemies now leak reliably, so an

@@ -8,6 +8,32 @@ will matter in six months belongs in an ADR, not here.
 
 ---
 
+## 2026-10-20 — First look at the renderer
+
+The owner granted Screen Recording, so for the first time someone has seen the GL renderer.
+
+**`screencapture -l <window id>`, not a full-screen capture.** A plain `screencapture` grabbed
+the whole desktop with the game buried behind other apps. A ten-line Swift script reads the
+window id from `CGWindowListCopyWindowInfo` by the process id, so the capture is the game window
+alone, occluded or not.
+
+**What it showed:** the full board at Retina resolution — no quarter-viewport HiDPI bug —
+walls, spawn and goal, the path line, enemies walking and leaking, and lives counting down,
+in 2 draw calls and about 413 quads.
+
+**Towers needed a temporary patch.** Synthetic mouse clicks via `CGEventPost` were silently
+dropped (that needs Accessibility, which was not worth asking for). Instead `app/main.cpp`
+briefly queued three `PlaceTower` commands on tick 0 through the normal command path; the
+captures show towers drawn, barrels rotating to track targets (the `drawSprite` direction
+path, live), a health bar on a damaged enemy, and six kills. The patch was reverted and the
+app rebuilt. Projectiles were never caught mid-flight in a still frame.
+
+**Signed off.** The owner accepted the screenshots as "looks correct"; Phase 5 is closed.
+
+**Next:** Phase 6, presentation — text, input, filesystem, interpolation.
+
+---
+
 ## 2026-10-16 — Phase 5 close-out: the decoder, and the last link to a sprite
 
 The owner accepted [ADR 0014](decisions/0014-image-decoding.md): vendor `stb_image.h`. That was
