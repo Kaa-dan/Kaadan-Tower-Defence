@@ -1,7 +1,7 @@
 # Mechanical guards over game/. Run as three separate CTest entries so a failure
 # names the rule that broke rather than just "purity failed".
 #
-# Invoke with -DGAME_DIR=<path> -DRULE=<platform|determinism|stdlib>.
+# Invoke with -DGAME_DIR=<path> -DRULE=<platform|determinism|stdlib|render_core|image>.
 #
 # Without these, a stray #include <windows.h> or a std::pow creeps in during a
 # late-night session and is only discovered months later -- when the Windows
@@ -50,6 +50,7 @@ if(RULE STREQUAL "platform")
     set(BAD_INCLUDES
         "sdl" "windows.h" "gl/gl" "opengl/" "cocoa/" "x11/" "vulkan"
         "d3d1" "dxgi" "metal" "wayland" "jni.h" "android/"
+        "stb_image"   # the simulation has no business decoding pixels (ADR 0014)
     )
     set(BAD_TOKENS "")
     set(DESCRIPTION "platform and graphics headers")
@@ -83,8 +84,21 @@ elseif(RULE STREQUAL "render_core")
         "sdl" "windows.h" "gl/gl" "opengl/" "cocoa/" "x11/" "vulkan"
         "d3d1" "dxgi" "metal" "wayland" "jni.h" "android/"
         "backends/"   # the whole point: decisions must not reach the executor
+        "stb_image"   # the packer takes pixel buffers; decoding sits above it (ADR 0014)
     )
     set(BAD_TOKENS "std::sort")
+    set(DESCRIPTION "backend and graphics dependencies")
+
+elseif(RULE STREQUAL "image")
+    # engine/image/ is the decoder, built as ktd_image so tests/ reach it under
+    # KTD_TESTS_ONLY. The same dependency rule as render_core, without the
+    # stb_image ban: Image.cpp is the one file in the tree allowed it.
+    set(BAD_INCLUDES
+        "sdl" "windows.h" "gl/gl" "opengl/" "cocoa/" "x11/" "vulkan"
+        "d3d1" "dxgi" "metal" "wayland" "jni.h" "android/"
+        "backends/"
+    )
+    set(BAD_TOKENS "")
     set(DESCRIPTION "backend and graphics dependencies")
 
 elseif(RULE STREQUAL "stdlib")

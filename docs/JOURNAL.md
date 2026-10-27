@@ -8,6 +8,82 @@ will matter in six months belongs in an ADR, not here.
 
 ---
 
+## 2026-10-20 — First look at the renderer
+
+The owner granted Screen Recording, so for the first time someone has seen the GL renderer.
+
+**`screencapture -l <window id>`, not a full-screen capture.** A plain `screencapture` grabbed
+the whole desktop with the game buried behind other apps. A ten-line Swift script reads the
+window id from `CGWindowListCopyWindowInfo` by the process id, so the capture is the game window
+alone, occluded or not.
+
+**What it showed:** the full board at Retina resolution — no quarter-viewport HiDPI bug —
+walls, spawn and goal, the path line, enemies walking and leaking, and lives counting down,
+in 2 draw calls and about 413 quads.
+
+**Towers needed a temporary patch.** Synthetic mouse clicks via `CGEventPost` were silently
+dropped (that needs Accessibility, which was not worth asking for). Instead `app/main.cpp`
+briefly queued three `PlaceTower` commands on tick 0 through the normal command path; the
+captures show towers drawn, barrels rotating to track targets (the `drawSprite` direction
+path, live), a health bar on a damaged enemy, and six kills. The patch was reverted and the
+app rebuilt. Projectiles were never caught mid-flight in a still frame.
+
+**Signed off.** The owner accepted the screenshots as "looks correct"; Phase 5 is closed.
+
+**Next:** Phase 6, presentation — text, input, filesystem, interpolation.
+
+---
+
+## 2026-10-16 — Phase 5 close-out: the decoder, and the last link to a sprite
+
+The owner accepted [ADR 0014](decisions/0014-image-decoding.md): vendor `stb_image.h`. That was
+the one thing holding the code side of Phase 5 open.
+
+**The machine had no toolchain.** No `cmake`, no `ctest`, no `pipx`, an empty Homebrew and no
+`build/` directory — whatever ran the August sessions is not this environment. The owner
+installed `cmake ninja pipx` through Homebrew; baseline was then 104/104 green on `core`. Noting
+it because "re-run the baseline before building" caught it rather than a half-built phase.
+
+**`ktd_image` is its own target, for the same reason `ktd_render_core` is.** The ADR said "one
+TU under `engine/`" and the obvious reading is a file inside `ktd_engine` — which would have put
+the decoder behind the 94-second SDL configure and out of reach of every test. Instead
+`engine/image/Image.cpp` builds as `ktd_image`, links only `ktd_game`, and runs in the 5-second
+loop. It takes bytes, never a path (`STBI_NO_STDIO`): files enter through `Platform::readFile`
+and nowhere else. `loadTexture` is the three-line join and lives in `ktd_engine`, the one place
+with both a `Platform` and a `Renderer`.
+
+**One amendment to the ADR, recorded in it.** It said "project warnings, not `-Werror`" for the
+vendored code. Done literally, `-Wconversion` prints hundreds of stb lines into every build.
+`third_party/` is a `SYSTEM` include instead: stb's warnings vanish, and `Image.cpp` itself
+keeps `-Werror`. Same intent, no noise.
+
+**`buildAtlas` closes the gap between the packer and a texture.** The packer returned
+placements; nothing turned placements plus pixels into one uploadable buffer with UVs. Now it
+does, in `ktd_render_core`, from pixel buffers. UVs are exact texel edges — no half-texel inset,
+which is a bilinear habit that would shave the edges of pixel art under `GL_NEAREST`.
+
+**Every new test was broken on purpose.** Eight mutations: row order flipped, RGBA expansion
+off, output written before the failure check, the dimension cap raised, the blit one row off, a
+half-texel UV inset, a partial atlas on failure, and `#include "stb_image.h"` in
+`engine/renderer/`. Each turned exactly its test red. One surprise: the oversized-image test
+first passed *without* the cap, because the fixture has no pixel data and fails anyway. It now
+checks the reason, not just the failure. Removing the cap outright doesn't even compile — a
+`static_assert` ties stb's cap to the advertised `kMaxImageDimension`. Also learned: stb does
+not verify PNG chunk CRCs, so "a flipped byte" is not a reliable corruption fixture; the test
+breaks the zlib header instead.
+
+**Verified:** 112/112 on `core` (was 104: seven tests plus `purity_image`), 112/112 under
+ASan+UBSan with zero sanitizer reports, `dev` builds with no warnings outside SDL,
+clang-format 20.1.7 clean, and the app runs four seconds with nothing on stdout or stderr.
+
+**Not verified, still the owner's:** whether the renderer looks right. And nothing calls
+`loadTexture` yet, because there is no art — `GameView` still draws coloured quads.
+
+**Next:** the owner looks at the game (Phase 5's last criterion) and ships with `/ship-phase`.
+Then the second design pass on Phase 6 before any Phase 6 code.
+
+---
+
 ## 2026-08-26 — Phase 5, the GL half: one draw path, and the board stops moving
 
 The render-core half landed earlier today. This session wrote the executor.

@@ -9,6 +9,7 @@
 
 add_library(ktd_render_core STATIC
     Atlas.cpp
+    AtlasBuilder.cpp
     Batch.cpp
     Renderer.cpp
 )

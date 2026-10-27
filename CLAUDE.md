@@ -1,7 +1,7 @@
 # kaadanTD
 
 A 2D tower defense with a custom C++20 engine. **Commercial Steam release** — not a learning
-project. One dependency: SDL3.
+project. One dependency: SDL3, plus one vendored header (`stb_image.h`, [ADR 0014](docs/decisions/0014-image-decoding.md)).
 
 ## The one rule
 
@@ -13,9 +13,10 @@ strategy, and `ctest` enforces it. See `docs/ARCHITECTURE.md` for the reasoning.
 | Path | Contents |
 |---|---|
 | `game/` | Pure simulation. Zero platform or graphics dependencies. Deterministic. |
-| `engine/` | `Platform` + `Renderer` interfaces and their SDL3/OpenGL backends. |
+| `engine/` | `Platform` + `Renderer` interfaces and their SDL3/OpenGL backends. `image/` decodes PNGs. |
+| `third_party/` | Vendored, unmodified, never formatted. Just `stb_image.h`. |
 | `app/` | Wires the two together. Fixed-timestep loop and the game's drawing. |
-| `tests/` | Headless. Links only `game/`, no window required. |
+| `tests/` | Headless. Links `game/`, `ktd_render_core` and `ktd_image` — no SDL, no window. |
 | `content/` | Balance and level data (`*.ktd`). Edit these, not `Config.h`. F5 reloads them. |
 
 ## Build and test
@@ -27,7 +28,7 @@ cmake --preset dev  && cmake --build --preset dev                           # fu
 ```
 
 Use the `core` preset by default — it skips SDL entirely (0.7s to configure vs 94s).
-`asan` preset for sanitizers. All 78 tests must stay green.
+`asan` preset for sanitizers. All tests must stay green (112 as of Phase 5).
 
 CTest entries are scraped at **configure** time, so re-run `cmake --preset core` after adding
 a `TEST()` — otherwise the suite reports green without ever running the new one.

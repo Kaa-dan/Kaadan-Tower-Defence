@@ -151,10 +151,13 @@ deliberate cost paid to keep the dependency count at one.
 
 ## Dependencies
 
-**SDL3, pinned to a commit SHA.** That is the entire list, and it is a design constraint
-rather than an accident — it is why there is no glad, no JSON library, and no Lua. Single-
-header libraries (stb) are the accepted compromise when the alternative is writing an image
-decoder.
+**SDL3, pinned to a commit SHA, plus one vendored header: `stb_image.h`.** That is the entire
+list, and it is a design constraint rather than an accident — it is why there is no glad, no
+JSON library, and no Lua. The header is the accepted compromise because the alternative was
+writing a PNG decoder ([ADR 0014](decisions/0014-image-decoding.md)). It lives unmodified in
+`third_party/`, is compiled in exactly one translation unit (`engine/image/Image.cpp`), and is
+reachable from neither `game/` nor `ktd_render_core` — the purity guards fail the build if
+either tries.
 
 ## Where the reasoning lives
 

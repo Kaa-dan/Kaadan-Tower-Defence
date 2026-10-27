@@ -14,7 +14,7 @@ Start a phase with `/phase <n>`. Check state with `/status`.
 | [2](phase-02-entity-storage.md) | Entity storage: handles, pools, spatial index | 3 d | ✅ done (`phase-02/entity-storage`, PR #4) |
 | [3](phase-03-content.md) | Data-driven content + hot reload | 3 d | ✅ done (`phase-03/content`, PR #5) |
 | [4](phase-04-systems.md) | Systems split, damage pipeline, event queue | 2 d | ✅ done (branch pending) |
-| [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 5-6 d | 🔨 engine done; **blocked on the decoder call** |
+| [5](phase-05-renderer.md) | Renderer: textures, atlas, sprites | 5-6 d | ✅ done (`phase-05/image-atlas`, owner signed off 2026-10-20) |
 | [6](phase-06-presentation.md) | Text, input, filesystem, interpolation | 4 d | ⬜ ⚠️ |
 | [7](phase-07-persistence.md) | Save / replay / settings | 2 d | ⬜ |
 | [8](phase-08-ui-audio.md) | UI framework, audio, scenes | 5-7 d | ⬜ |
@@ -60,18 +60,19 @@ Two dependencies are load-bearing:
   ([ADR 0013](../decisions/0013-render-core-is-testable-without-a-gpu.md)). Also caught:
   `glDebugMessageCallback` is GL 4.3, and the first pass put it in the fail-hard loader list,
   which would have refused to start the renderer on every 3.3 driver.
-- **Decide on `stb_image.h`** ([ADR 0014](../decisions/0014-image-decoding.md), status
-  *proposed*). Phase 5 needs an image decoder and `CLAUDE.md` opens with "One dependency:
-  SDL3". The recommendation is to vendor the header and edit that line. **Now the one thing
-  holding Phase 5 open.** The sprite pipeline is finished and runs — `createTexture` takes
-  RGBA8, `drawSprite` takes a UV rect and a direction, the atlas returns placements — but with
-  no decoder and no art the game on screen is still coloured quads. Everything except
-  `loadTexture`'s file path is built and tested against in-memory pixel buffers.
-- **Nobody has looked at the new renderer.** The GL half rewrote the vertex format, the draw
-  path, the batching and the board upload. It runs clean, but screen capture is blocked by
-  macOS permissions on this machine, so *"the game runs and looks correct"* is unverified and
-  is Phase 5's last unticked criterion. Debug builds put draw calls and quad count in the
-  window title.
+- ~~**Decide on `stb_image.h`**~~ **Accepted 2026-10-16** ([ADR 0014](../decisions/0014-image-decoding.md)).
+  Vendored v2.30 in `third_party/`, PNG only, reached solely through `engine/image/Image.cpp`.
+  `loadTexture` and `buildAtlas` are built and tested; `CLAUDE.md`'s dependency line is edited
+  to say so.
+- **No art exists yet, so nothing calls `loadTexture`.** The path from a PNG on disk to a
+  sprite on screen is complete and tested up to the GL upload, but `GameView` still draws
+  coloured quads because there is nothing to load. The first art drop is a `GameView` change,
+  not an engine one: `readFile` the PNGs, `decodePng`, `buildAtlas`, one `createTexture`, then
+  `drawSprite` with the returned UVs. Art is the owner's.
+- **The new renderer has been seen, by screenshot.** On 2026-10-20 the owner granted screen
+  capture, and window captures show the board, enemies, health bars and rotating tower
+  barrels drawn correctly in 2 draw calls ([phase spec](phase-05-renderer.md) has the
+  detail). The owner signed off *"looks correct"* the same day, closing Phase 5.
 - **Re-baselined the determinism hash.** Phase 2 moved the golden checksum to
   `0x8D8C026A6A51F571` and regenerated `tests/data/reference_trace.tsv`, on purpose and in one
   step: the goal-tunneling fix is a real gameplay change (enemies now leak reliably, so an
